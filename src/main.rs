@@ -27,7 +27,7 @@ use rand_distr::{Normal, Uniform};
 use genetic_algorithms::traits::{GeneT, GenotypeT};
 
 const GENOME_LENGTH: usize = 3 * 2;
-const LLM_TEAMS_PER_TASK: usize = 10;
+const LLM_TEAMS_PER_TASK: usize = 100;
 
 // Constants for task and subtask generation
 const TASK_DIFFICULTY_MEAN: f64 = 0.8;
@@ -478,6 +478,7 @@ impl GenotypeT for LlmTeamGenome {
         }
         self.fitness += total_fitness;
         self.age += 1;
+
         // flip a coin, 50% chance of success
         // let mut rng = thread_rng();
         // let success = rng.gen_bool(0.5);
@@ -545,7 +546,7 @@ fn main() {
     }
 
     population = ga::Ga::new()
-        .with_threads(num_cpus::get() as i32)
+        .with_threads(24)
         .with_logs(genetic_algorithms::configuration::LogLevel::Info)
         .with_alleles(alleles)
         .with_adaptive_ga(true)

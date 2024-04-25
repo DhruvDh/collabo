@@ -1,141 +1,188 @@
 # collabo
 
-This project aims to optimize the collaborative structure of LLMTeams using a genetic algorithm to maximize task completion efficiency and economic viability.
+This project aims to optimize the collaborative architecture of multiple LLM teams working together using a genetic algorithm to maximize task completion efficiency and economic viability. The genetic algorithm evolves a population of `LlmTeamGenome` instances, each representing a different configuration of genes (`LLMGene`).
 
-The genetic algorithm evolves a population of LLMTeamGenome instances, each representing a different configuration of genes (LLMGene). The fitness of each LLMTeamGenome is evaluated based on the performance of the LLMTeam it represents on the given set of tasks.
+The fitness of each `LlmTeamGenome` is evaluated based on the performance of the `LlmTeam` it represents on the given set of tasks. Through the process of selection, crossover, and mutation, the genetic algorithm explores different combinations of genes and converges towards the optimal values that yield the most effective collaborative structures for the LLMTeams.
 
-The performance metrics include task completion rate, collaboration efficiency, and economic viability (considering the costs and rewards associated with solving the tasks). Through the process of selection, crossover, and mutation, the genetic algorithm explores different combinations of genes and converges towards the optimal values that yield the most effective collaborative structures for the LLMTeams.
+## Motivation
 
-## LLM
+- Large Language Models (LLMs) are generally effective in solving a wide range of tasks.
+- The more capable LLMs are very expensive to train and run.
+- It would be ideal if many smaller LLMs could collaborate to solve tasks more efficiently, perhaps outperforming a single large LLM.
+- How to architect the collaboration of multiple LLMs to maximize task completion efficiency is unclear.
+- Our work covers three types of collaboration structures: single, vertical, and horizontal.
+  - Single: Each LLM works independently.
+  - Vertical: A leader LLM coordinates the work of follower LLMs. The leader breaks down tasks and assigns subtasks to followers, which may or may not be easier to solve.
+  - Horizontal: Multiple LLMs work together as equals. All work in parallel, if the majority "succeeds", the task is considered successful.
 
-The LLM struct represents an individual language model with its specific characteristics and capabilities.
+## Genes and Genotype
 
-```rust
-struct LLM {
-    context_length: usize,
-    reasoning_ability: f32,
-    planning_ability: f32,
-    verbosity: f32,
-    competency_1: f32,
-    competency_2: f32,
-    competency_3: f32,
-    cost_per_input_token: f32,
-    cost_per_output_token: f32,
-}
+- What should be the genes?
+- Our research question is related to "how" many LLMs should collaborate, so the genes should represent the collaboration structure.
+- We come up with a string representation of a tree-like collaboration structure -
+
+  ```
+  SHSSVSS
+  ```
+
+- If the first gene is an `S`, it means the entire team is a single LLM, other genes are ignored.
+- If the first gene is not an `S`:
+  - We reverse the string and start from the right.
+  - As we come across `S`s, we add them to a stack.
+  - As soon as we come across a `V` or an `H`, we add all the prior `S`s to the `V` or `H` as followers.
+- So our genes describe a `LlmFactory` - a way to create a `LlmTeam`.
+
+## Fitness Function
+
+- Our genes represent a `LlmFactory`, so it must be evaluated by giving it `LLMs` to arrange into a team.
+- In our calculate fitness function:
+  - For every task, we randomly initialize `N` `Llm`s.
+  - These LLMs are arranged into teams according to the Genotype, N times.
+  - Each team tries to solve the task,
+    - If successful, the fitness function is incremented by one.
+    - Otherwise, no action is taken.
+
+## Solving Tasks
+
+- Each `Llm` has a set of characteristics that determine its performance.
+
+    ```rs
+    struct Llm {
+        context_length: usize,
+        planning_ability: f32,
+        verbosity: f32,
+        competency: f32,
+        cost_per_token: f32,
+    }
+    ```
+
+- Each task has a set of requirements that must be met for it to be solved.
+
+    ```rs
+    struct Task {
+        root_task: SubTask,
+        subtasks: Vec<SubTask>,
+        economic_value: f32,
+        llms: Vec<Vec<Llm>>,
+    }
+
+    struct SubTask {
+        reasoning_required: f32,
+        planning_required: f32,
+        competency_required: f32,
+        token_estimate: usize,
+    }
+    ```
+
+- There is also an `LLMTeam` struct, which can be a single LLM, a vertical collaboration, or a horizontal collaboration.
+
+    ```rs
+    enum LlmTeam {
+        Single(Llm),
+        Vertical {
+            leader: Box<LlmTeam>,
+            followers: Vec<LlmTeam>,
+        },
+        Horizontal {
+            members: Vec<LlmTeam>,
+        },
+        Invalid,
+    }
+    ```
+
+- If the LlmTeam is invalid, it always gets a fitness score of 0. (fails task)
+- If the LlmTeam is a single LLM, the task is attempted by that LLM. (more on this in the next section)
+- If the LlmTeam is a vertical collaboration, the leader LLM breaks down the task and assigns subtasks to followers.
+  - If 75% of the followers succeed, the task is considered successful.
+- If the LlmTeam is a horizontal collaboration, all LLMs work in parallel.
+  - If >50% of the LLMs succeed, the task is considered successful.
+  - I realize that this is a mistake as I write this.
+
+## Solving Tasks with Single LLMs
+
+```rs
+    fn solve_task(&self, task: &Task) -> bool {
+        let scaled_competency = self.competency * task.root_task.competency_required;
+        let scaled_planning_ability = self.planning_ability * task.root_task.planning_required;
+        let avg_competency = (scaled_competency + scaled_planning_ability) / 2.0;
+
+        let scaled_token_estimate =
+            (task.root_task.token_estimate as f32 * self.verbosity) as usize;
+        let adjusted_competency = if scaled_token_estimate > self.context_length {
+            avg_competency / 2.0
+        } else {
+            avg_competency
+        };
+
+        let mut rng = SmallRng::from_entropy();
+
+        Normal::new(adjusted_competency as f64, 0.2)
+            .unwrap()
+            .sample(&mut rng)
+            > 0.5
+    }
 ```
 
-- `context_length`: The maximum number of tokens the LLM can process in a single context.
-- `reasoning_ability`: A float value indicating the LLM's ability to reason and draw logical conclusions.
-- `planning_ability`: A float value representing the LLM's ability to plan and break down tasks into subtasks.
-- `verbosity`: A float value indicating the number of tokens required to complete a task.
-- `competency_1`: A float value indicating the overall competency of the LLM in solving tasks.
-- `competency_2`: A float value indicating the overall competency of the LLM in solving tasks.
-- `competency_3`: A float value indicating the overall competency of the LLM in solving tasks.
-- `cost_per_input_token`: The cost associated with processing each input token.
-- `cost_per_output_token`: The cost associated with generating each output token.
+## Breaking down tasks into subtasks
 
-## LLMTeam
+```rs
+    fn break_down_task(&self, task: &Task) -> Vec<SubTask> {
+        let threshold =
+            1.0 - (task.root_task.reasoning_required + task.root_task.planning_required) / 2.0;
+        let mut rng = SmallRng::from_entropy();
+        let success = Normal::new(self.planning_ability, 0.1)
+            .unwrap()
+            .sample(&mut rng)
+            > threshold;
 
-The LLMTeam enum represents a team of collaborating LLMs, which can be a single LLM, a vertical collaboration, or a horizontal collaboration.
-
-```rust
-enum LLMTeam {
-    Single(LLM),
-    Vertical {
-        leader: Box<LLMTeam>,
-        followers: Vec<LLMTeam>,
-    },
-    Horizontal {
-        members: Vec<LLMTeam>,
-    },
-    Invalid,
-}
+        if success {
+            task.subtasks.clone()
+        } else {
+            task.subtasks
+                .iter()
+                .map(|subtask| SubTask {
+                    reasoning_required: (subtask.reasoning_required + 0.1).min(1.0),
+                    planning_required: (subtask.planning_required + 0.1).min(1.0),
+                    competency_required: (subtask.competency_required + 0.1).min(1.0),
+                    ..subtask.clone()
+                })
+                .collect()
+        }
+    }
 ```
-
-- `Single`: Represents an individual LLM working independently.
-- `Vertical`: Represents a vertical collaboration strategy, where a leader LLMTeam directs and coordinates the work of follower LLMTeams.
-- `Horizontal`: Represents a horizontal collaboration strategy, where multiple LLMTeams work together as equals to solve tasks.
-- `Invalid`: Represents an invalid LLM, for error handling purposes. This variant will always get a fitness score of 0.
-
-## LLMGenome
-
-The LLMTeamGenome struct represents the genome of an LLMTeam in the NEAT framework. It includes the genotype string representation.
-
-```rust
-struct LLMTeamGenome {
-    genotype: String,
-}
-```
-
-### Genotype
-
-The genotype is a string representation of the collaborative structure of an LLMTeam. It follows these rules:
-
-- All 'S' characters represent single LLM team members.
-- The first 'S' character dictates that there is only one single LLM working independently.
-- Any number of 'S' characters that come after a 'V' character work under that 'V' LLM in a vertical hierarchy.
-- Any number of 'S' characters that come after an 'H' character work with that 'H' LLM in a horizontal fashion, where they all work in parallel and then vote for a solution.
-
-The genotype string is parsed using the following algorithm:
-
-1. If the genotype string is empty, return `LLMTeam::Invalid`.
-2. If the first character of the genotype is 'S':
-   - If the genotype length is 1, return `LLMTeam::Single(...)`.
-   - Otherwise, return `LLMTeam::Invalid` (as 'S' should only appear alone or after 'V' or 'H').
-3. Initialize an empty stack called `team_stack` to store the parsed team structures.
-4. Traverse the genotype string from right to left:
-   - If the current character is 'S', push `LLMTeam::Single(...)` onto the `team_stack`.
-   - If the current character is 'H':
-     - Create an empty vector called `members`.
-     - While `team_stack` is not empty and the top of `team_stack` is not `LLMTeam::Vertical`, pop elements from `team_stack` and push them onto `members`.
-     - Push `LLMTeam::Horizontal { members }` onto the `team_stack`.
-   - If the current character is 'V':
-     - Create an empty vector called `followers`.
-     - While `team_stack` is not empty and the top of `team_stack` is not `LLMTeam::Horizontal`, pop elements from `team_stack` and push them onto `followers`.
-     - If `team_stack` is empty, return `LLMTeam::Invalid` (as there should be a leader for the vertical team).
-     - Pop the top element from `team_stack` and assign it to `leader`.
-     - Push `LLMTeam::Vertical { leader, followers }` onto the `team_stack`.
-   - If the current character is none of the above, return `LLMTeam::Invalid`.
-5. After the traversal, if the `team_stack` contains exactly one element, return that element as the final team structure.
-6. If the `team_stack` contains more than one element or is empty, return `LLMTeam::Invalid`.
-
-## Tasks
-
-The Tasks struct represents a set of tasks that the LLMTeams need to solve. Each task has specific requirements and characteristics.
-
-```rust
-struct Task {
-    id: String,
-    description: String,
-    reasoning_required: f32,
-    planning_required: f32,
-    competency_required: f32,
-    token_estimate: usize,
-    economic_value: f32,
-}
-```
-
-- `id`: A unique identifier for the task.
-- `description`: A detailed description of the task.
-- `reasoning_required`: A float value indicating the level of reasoning required to solve the task.
-- `planning_required`: A float value representing the level of planning required to solve the task.
-- `competency_required`: A float value indicating the overall competency required to solve the task.
-- `token_estimate`: An estimate of the number of tokens required to complete the task.
-- `economic_value`: The economic value generated upon successful completion of the task.
-
-## Scratch
-
-- "H(S2)(S1)(S3)" could represent a horizontal team with three LLMs, where their votes are weighted as 2, 1, and 3, respectively.
-- Prefix genes that change how the input list of LLMs is sorted.
 
 ## Simulation
 
-### Initialization
+The genetic algorithm simulation consists of the following steps:
 
-### Evaluation
+1. **Initialization**: Generate an initial population of `LlmTeamGenome` instances with random gene configurations.
 
-### Selection
+2. **Evaluation**: Evaluate the fitness of each `LlmTeamGenome` by assessing the performance of the corresponding `LlmTeam` on a set of tasks. The fitness is calculated based on the task completion rate, collaboration efficiency, and economic viability.
 
-### Crossover
+3. **Selection**: Select the fittest individuals from the population to serve as parents for the next generation. The selection method used is tournament selection.
 
-### Mutation
+4. **Crossover**: Create offspring by applying the cycle crossover method to the selected parents. The crossover probability is adaptively adjusted based on the progress of the optimization.
+
+5. **Mutation**: Introduce random variations in the offspring by applying the swap mutation method. The mutation probability is adaptively adjusted based on the progress of the optimization.
+
+6. **Survivor Selection**: Select the individuals that will survive to the next generation based on their fitness. The survivor selection method used is fitness-based.
+
+7. **Termination**: Repeat steps 2-6 for a specified number of generations or until a satisfactory solution is found.
+
+The genetic algorithm parameters, such as population size, number of generations, crossover and mutation probabilities, and selection methods, can be adjusted to fine-tune the optimization process.
+
+## Usage
+
+To run the LLMTeam optimization using the genetic algorithm, execute the `main` function in the provided Rust code. The program will simulate the optimization process and display the best individual (LLMTeam configuration) found at the end of the simulation.
+
+You can customize the simulation parameters, such as the maximum number of generations, by passing command-line arguments. For example, to set the maximum number of generations to 20, run the program with the following command:
+
+```shell
+cargo run -- -m 20
+
+[2024-04-25T15:53:36Z INFO  genetic_algorithms::ga] Generation number: 999
+[2024-04-25T15:53:36Z INFO  genetic_algorithms::ga] Generation number: 1000
+Best individual: [LlmTeamGenome { dna: [Single(0), Horizontal(5), Horizontal(2), Vertical(4), Single(3), Vertical(1)], age: 0, fitness: 327970.11999999976 }]
+```
+
+The program will output the progress of the optimization process and the best individual found at the end of the simulation.
