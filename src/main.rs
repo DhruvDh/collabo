@@ -72,9 +72,9 @@ impl Default for LLMGene {
 impl LLMGene {
     fn from_id(id: i32) -> Self {
         match id % 3 {
-            0 => LLMGene::Single(id as i32),
-            1 => LLMGene::Vertical(id as i32),
-            2 => LLMGene::Horizontal(id as i32),
+            0 => LLMGene::Single(id),
+            1 => LLMGene::Vertical(id),
+            2 => LLMGene::Horizontal(id),
             _ => panic!("Invalid gene ID"),
         }
     }
