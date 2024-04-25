@@ -170,7 +170,6 @@ enum LlmTeam {
 struct LlmTeamGenome {
     dna: [LLMGene; GENOME_LENGTH],
     age: i32,
-    tasks: Vec<Task>,
     fitness: f64,
 }
 
@@ -179,7 +178,6 @@ impl Default for LlmTeamGenome {
         Self {
             dna: Default::default(),
             age: Default::default(),
-            tasks: Task::new(1000),
             fitness: Default::default(),
         }
     }
@@ -458,11 +456,13 @@ impl GenotypeT for LlmTeamGenome {
     /// Calculates the fitness of the LLMTeamGenome based on its performance on the tasks.
     fn calculate_fitness(&mut self) {
         let mut total_fitness = 0.0;
-        for task in &self.tasks {
+        let tasks = Task::new(10);
+
+        for task in tasks {
             for llm_team in &task.llms {
                 let llm_team = self.parse_genotype(llm_team);
                 let success_count = (0..LLM_TEAMS_PER_TASK)
-                    .filter(|_| llm_team.solve_task(task))
+                    .filter(|_| llm_team.solve_task(&task))
                     .count();
                 total_fitness += success_count as f64 / LLM_TEAMS_PER_TASK as f64;
             }
@@ -497,8 +497,15 @@ fn main() {
         .with_crossover_method(Crossover::Cycle)
         .with_mutation_method(Mutation::Swap)
         .with_survivor_method(Survivor::Fitness)
-        .with_genes_per_individual(100) // Adjust based on expected genotype length
+        .with_genes_per_individual(15) // Adjust based on expected genotype length
         .with_population_size(100)
+        .with_alleles(vec![
+            LLMGene::Single,
+            LLMGene::Vertical,
+            LLMGene::Horizontal,
+        ])
+        .with_alleles_can_be_repeated(true)
+        .with_logs(genetic_algorithms::configuration::LogLevel::Info)
         .run();
 
     // Sort the individuals in the population by their fitness
