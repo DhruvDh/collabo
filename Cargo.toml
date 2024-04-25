@@ -15,7 +15,3 @@ statrs = { version = "0.16.0", features = ["nightly"] }
 [dependencies.rand]
 version = "0.8.5"
 features = ["serde", "nightly", "small_rng"]
-
-[target.'cfg(target_os = "linux")'.dependencies.rand]
-version = "0.8.5"
-features = ["simd_support", "serde", "nightly", "small_rng"]
