@@ -25,7 +25,7 @@ use rand_distr::{Normal, Uniform};
 
 use genetic_algorithms::traits::{GeneT, GenotypeT};
 
-const GENOME_LENGTH: usize = 3 * 5;
+const GENOME_LENGTH: usize = 3 * 2;
 const LLM_TEAMS_PER_TASK: usize = 10;
 
 // Constants for task and subtask generation
@@ -53,22 +53,27 @@ const LLM_COST_PER_TOKEN_MEAN: f64 = 0.0000015;
 const LLM_COST_PER_TOKEN_STD_DEV: f64 = 0.000001;
 
 /// Represents the different types of genes in the LLMTeamGenome.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum LLMGene {
-    #[default]
     /// Represents a single LLM instance in the team, working independently.
-    Single,
+    Single(i32),
     /// Represents a vertical collaboration structure with a leader and followers.
-    Vertical,
+    Vertical(i32),
     /// Represents a horizontal collaboration structure with multiple members.
-    Horizontal,
+    Horizontal(i32),
+}
+
+impl Default for LLMGene {
+    fn default() -> Self {
+        LLMGene::Single(0)
+    }
 }
 impl LLMGene {
-    fn from_id(id: usize) -> Self {
-        match id {
-            0 => LLMGene::Single,
-            1 => LLMGene::Vertical,
-            2 => LLMGene::Horizontal,
+    fn from_id(id: i32) -> Self {
+        match id % 3 {
+            0 => LLMGene::Single(id as i32),
+            1 => LLMGene::Vertical(id as i32),
+            2 => LLMGene::Horizontal(id as i32),
             _ => panic!("Invalid gene ID"),
         }
     }
@@ -76,19 +81,19 @@ impl LLMGene {
 
 impl GeneT for LLMGene {
     fn set_id(&mut self, id: i32) {
-        *self = match id {
-            0 => LLMGene::Single,
-            1 => LLMGene::Vertical,
-            2 => LLMGene::Horizontal,
-            _ => panic!("Invalid gene ID"),
+        *self = match id.abs() % 3 {
+            0 => LLMGene::Single(id),
+            1 => LLMGene::Vertical(id),
+            2 => LLMGene::Horizontal(id),
+            _ => unreachable!(),
         };
     }
 
     fn get_id(&self) -> i32 {
         match self {
-            LLMGene::Single => 0,
-            LLMGene::Vertical => 1,
-            LLMGene::Horizontal => 2,
+            LLMGene::Single(i) => *i,
+            LLMGene::Vertical(i) => *i,
+            LLMGene::Horizontal(i) => *i,
         }
     }
 }
@@ -204,14 +209,14 @@ impl LlmTeamGenome {
 
         for gene in self.dna.iter().rev() {
             match gene {
-                LLMGene::Single => {
+                LLMGene::Single(_) => {
                     if let Some(llm) = llm_iter.next() {
                         team_stack.push(LlmTeam::Single(*llm));
                     } else {
                         return LlmTeam::Invalid;
                     }
                 }
-                LLMGene::Horizontal => {
+                LLMGene::Horizontal(_) => {
                     let mut members: Vec<LlmTeam> = Vec::new();
                     while let Some(team) = team_stack.pop() {
                         if let LlmTeam::Vertical { .. } = team {
@@ -222,7 +227,7 @@ impl LlmTeamGenome {
                     }
                     team_stack.push(LlmTeam::Horizontal { members });
                 }
-                LLMGene::Vertical => {
+                LLMGene::Vertical(_) => {
                     let mut followers: Vec<LlmTeam> = Vec::new();
                     while let Some(team) = team_stack.pop() {
                         if let LlmTeam::Horizontal { .. } = team {
@@ -485,22 +490,20 @@ impl GenotypeT for LlmTeamGenome {
 }
 
 fn generate_all_combinations() -> Vec<LlmTeamGenome> {
-    [0, 1, 2]
-        .iter()
-        .cycle()
-        .take(GENOME_LENGTH)
-        .permutations(GENOME_LENGTH)
-        .map(|c| {
-            let mut genome = LlmTeamGenome {
-                dna: [LLMGene::Single; GENOME_LENGTH],
-                age: 0,
-                fitness: 0.0,
-            };
-            let genes = c.iter().map(|&c| LLMGene::from_id(*c)).collect::<Vec<_>>();
-            genome.set_dna(&genes);
-            genome
-        })
-        .collect()
+    let mut combinations = Vec::new();
+    for i in 0..3_i32.pow(GENOME_LENGTH as u32) {
+        let mut genome = LlmTeamGenome {
+            dna: [LLMGene::Single(0); GENOME_LENGTH],
+            age: 0,
+            fitness: 0.0,
+        };
+        let genes = (0..GENOME_LENGTH)
+            .map(|j| LLMGene::from_id((i + j as i32) % GENOME_LENGTH as i32))
+            .collect::<Vec<_>>();
+        genome.set_dna(&genes);
+        combinations.push(genome);
+    }
+    combinations
 }
 
 fn main() {
@@ -520,6 +523,7 @@ fn main() {
         .with_logs(genetic_algorithms::configuration::LogLevel::Trace)
         .with_population(population)
         .run();
+    
     // Sort the individuals in the population by their fitness
     population
         .individuals
