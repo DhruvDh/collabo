@@ -19,12 +19,13 @@ use genetic_algorithms::{
     population::Population,
     traits::ConfigurationT,
 };
+use itertools::Itertools;
 use rand::prelude::*;
 use rand_distr::{Normal, Uniform};
 
 use genetic_algorithms::traits::{GeneT, GenotypeT};
 
-const GENOME_LENGTH: usize = 15;
+const GENOME_LENGTH: usize = 3 * 5;
 const LLM_TEAMS_PER_TASK: usize = 10;
 
 // Constants for task and subtask generation
@@ -52,7 +53,7 @@ const LLM_COST_PER_TOKEN_MEAN: f64 = 0.0000015;
 const LLM_COST_PER_TOKEN_STD_DEV: f64 = 0.000001;
 
 /// Represents the different types of genes in the LLMTeamGenome.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 enum LLMGene {
     #[default]
     /// Represents a single LLM instance in the team, working independently.
@@ -61,6 +62,16 @@ enum LLMGene {
     Vertical,
     /// Represents a horizontal collaboration structure with multiple members.
     Horizontal,
+}
+impl LLMGene {
+    fn from_id(id: usize) -> Self {
+        match id {
+            0 => LLMGene::Single,
+            1 => LLMGene::Vertical,
+            2 => LLMGene::Horizontal,
+            _ => panic!("Invalid gene ID"),
+        }
+    }
 }
 
 impl GeneT for LLMGene {
@@ -166,21 +177,11 @@ enum LlmTeam {
 }
 
 /// Represents the genome of an LLMTeam in the genetic algorithm framework.
-#[derive(Clone)]
+#[derive(Clone, Default, Debug)]
 struct LlmTeamGenome {
     dna: [LLMGene; GENOME_LENGTH],
     age: i32,
     fitness: f64,
-}
-
-impl Default for LlmTeamGenome {
-    fn default() -> Self {
-        Self {
-            dna: Default::default(),
-            age: Default::default(),
-            fitness: Default::default(),
-        }
-    }
 }
 
 impl LlmTeamGenome {
@@ -262,8 +263,6 @@ struct Task {
 #[derive(Clone)]
 /// Represents a subtask that is part of a larger task.
 struct SubTask {
-    id: String,
-    description: String,
     reasoning_required: f32,
     planning_required: f32,
     competency_required: f32,
@@ -278,8 +277,6 @@ impl Default for SubTask {
         let difficulty_dist = Normal::new(TASK_DIFFICULTY_MEAN, TASK_DIFFICULTY_STD_DEV).unwrap();
 
         Self {
-            id: Default::default(),
-            description: Default::default(),
             reasoning_required: difficulty_dist.sample(&mut rng).clamp(0.0, 1.0) as f32,
             planning_required: difficulty_dist.sample(&mut rng).clamp(0.0, 1.0) as f32,
             competency_required: difficulty_dist.sample(&mut rng).clamp(0.0, 1.0) as f32,
@@ -487,27 +484,42 @@ impl GenotypeT for LlmTeamGenome {
     }
 }
 
+fn generate_all_combinations() -> Vec<LlmTeamGenome> {
+    [0, 1, 2]
+        .iter()
+        .cycle()
+        .take(GENOME_LENGTH)
+        .permutations(GENOME_LENGTH)
+        .map(|c| {
+            let mut genome = LlmTeamGenome {
+                dna: [LLMGene::Single; GENOME_LENGTH],
+                age: 0,
+                fitness: 0.0,
+            };
+            let genes = c.iter().map(|&c| LLMGene::from_id(*c)).collect::<Vec<_>>();
+            genome.set_dna(&genes);
+            genome
+        })
+        .collect()
+}
+
 fn main() {
-    // Configure and run the genetic algorithm
-    let mut population: Population<LlmTeamGenome> = ga::Ga::new()
-        .with_threads(8)
+    let individuals = generate_all_combinations();
+
+    let mut population = Population::new(individuals);
+    println!("Population size: {}", population.individuals.len());
+
+    population = ga::Ga::new()
+        .with_threads(num_cpus::get() as i32)
         .with_problem_solving(ProblemSolving::Maximization)
         .with_selection_method(Selection::Tournament)
-        .with_number_of_couples(10)
+        .with_number_of_couples(2)
         .with_crossover_method(Crossover::Cycle)
         .with_mutation_method(Mutation::Swap)
         .with_survivor_method(Survivor::Fitness)
-        .with_genes_per_individual(15) // Adjust based on expected genotype length
-        .with_population_size(100)
-        .with_alleles(vec![
-            LLMGene::Single,
-            LLMGene::Vertical,
-            LLMGene::Horizontal,
-        ])
-        .with_alleles_can_be_repeated(true)
-        .with_logs(genetic_algorithms::configuration::LogLevel::Info)
+        .with_logs(genetic_algorithms::configuration::LogLevel::Trace)
+        .with_population(population)
         .run();
-
     // Sort the individuals in the population by their fitness
     population
         .individuals

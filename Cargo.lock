@@ -89,10 +89,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "genetic_algorithms",
+ "itertools",
+ "num_cpus",
  "rand",
  "rand_distr",
  "statrs",
 ]
+
+[[package]]
+name = "either"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a47c1c47d2f5964e29c61246e81db715514cd532db6b5116a25ea3c03d6780a2"
 
 [[package]]
 name = "env_logger"
@@ -110,8 +118,7 @@ dependencies = [
 [[package]]
 name = "genetic_algorithms"
 version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cbaff3ae2d943732b36aee6027479bd4f72d99fefc2083fc5f208486c29dbfa"
+source = "git+https://github.com/DhruvDh/rust_genetic_algorithms.git#2db738a1507ad023b1c199a5d768bb3f64d48399"
 dependencies = [
  "env_logger",
  "log",
@@ -157,6 +164,15 @@ dependencies = [
  "hermit-abi",
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
 ]
 
 [[package]]
