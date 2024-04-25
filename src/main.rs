@@ -12,6 +12,8 @@
 //! combinations of genes and converges towards the optimal values that yield the most effective collaborative
 //! structures for the LLMTeams.
 
+use std::env;
+
 use genetic_algorithms::{
     configuration::ProblemSolving,
     ga,
@@ -249,6 +251,10 @@ impl LlmTeamGenome {
 
         if team_stack.len() == 1 {
             team_stack.pop().unwrap()
+        } else if !team_stack.is_empty() {
+            LlmTeam::Horizontal {
+                members: team_stack,
+            }
         } else {
             LlmTeam::Invalid
         }
@@ -471,7 +477,7 @@ impl GenotypeT for LlmTeamGenome {
             }
         }
         self.fitness += total_fitness;
-
+        self.age += 1;
         // flip a coin, 50% chance of success
         // let mut rng = thread_rng();
         // let success = rng.gen_bool(0.5);
@@ -513,33 +519,47 @@ fn generate_all_combinations() -> Vec<LlmTeamGenome> {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let mut max_generations = 10; // default value
+
+    for i in 1..args.len() {
+        if args[i] == "-m" {
+            if i + 1 < args.len() {
+                max_generations = args[i + 1]
+                    .parse()
+                    .expect("Invalid number for max generations");
+            } else {
+                panic!("Expected an integer argument after -m");
+            }
+        }
+    }
+
     let individuals = generate_all_combinations();
 
     let mut population = Population::new(individuals);
     println!("Population size: {}", population.individuals.len());
 
+    let mut alleles = Vec::new();
+    for i in 0..GENOME_LENGTH {
+        alleles.push(LLMGene::from_id(i as i32));
+    }
+
     population = ga::Ga::new()
         .with_threads(num_cpus::get() as i32)
+        .with_logs(genetic_algorithms::configuration::LogLevel::Info)
+        .with_alleles(alleles)
+        .with_adaptive_ga(true)
         .with_problem_solving(ProblemSolving::Maximization)
-        .with_selection_method(Selection::RouletteWheel)
-        .with_number_of_couples(2)
+        .with_selection_method(Selection::Tournament)
         .with_crossover_method(Crossover::Cycle)
         .with_mutation_method(Mutation::Swap)
         .with_survivor_method(Survivor::Fitness)
-        // .with_logs(genetic_algorithms::configuration::LogLevel::Trace)
-        .with_alleles(vec![
-            LLMGene::from_id(0),
-            LLMGene::from_id(1),
-            LLMGene::from_id(2),
-            LLMGene::from_id(3),
-            LLMGene::from_id(4),
-            LLMGene::from_id(5),
-        ])
-        .with_adaptive_ga(true)
+        .with_number_of_couples(6)
         .with_crossover_probability_min(0.2)
         .with_crossover_probability_max(0.8)
         .with_population(population)
-        .with_max_generations(1000)
+        .with_best_individual_by_generation(false)
+        .with_max_generations(max_generations)
         .run();
 
     // Sort the individuals in the population by their fitness
