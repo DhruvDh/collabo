@@ -503,17 +503,11 @@ fn generate_all_combinations() -> Vec<LlmTeamGenome> {
             age: 0,
             fitness: 0.0,
         };
-        let mut genes = (0..GENOME_LENGTH)
+        let genes = (0..GENOME_LENGTH)
             .map(|j| LLMGene::from_id((i + j as i32) % GENOME_LENGTH as i32))
             .collect::<Vec<_>>();
-        // shuffle the genes
-        let mut rng = thread_rng();
-        genes.shuffle(&mut rng);
         genome.set_dna(&genes);
         combinations.push(genome.clone());
-        genes.shuffle(&mut rng);
-        genome.set_dna(&genes);
-        combinations.push(genome);
     }
     combinations
 }
