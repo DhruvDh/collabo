@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Dhruv Dhamani <ddhamani@charlotte.edu>"]
 
 [dependencies]
+anyhow = { version = "1.0.82", features = ["backtrace"] }
 genetic_algorithms = "1.3.2"
 rand_distr = { version = "0.4.3", features = ["serde"] }
 statrs = { version = "0.16.0", features = ["nightly"] }
