@@ -527,7 +527,7 @@ fn main() {
     population = ga::Ga::new()
         .with_threads(num_cpus::get() as i32)
         .with_problem_solving(ProblemSolving::Maximization)
-        .with_selection_method(Selection::Tournament)
+        .with_selection_method(Selection::RouletteWheel)
         .with_number_of_couples(2)
         .with_crossover_method(Crossover::Cycle)
         .with_mutation_method(Mutation::Swap)
@@ -553,16 +553,5 @@ fn main() {
         .individuals
         .sort_by(|a, b| b.get_fitness().partial_cmp(&a.get_fitness()).unwrap());
 
-    // Get the best individual from the sorted population
-    let best_genome = &population.individuals[0];
-    println!("Best individual: {:?}", best_genome);
-
-    // Parse the genotype of the best individual
-    // let best_team = best_genome.parse_genotype();
-
-    // Evaluate the performance of the best team on the tasks
-    // ...
-
-    // Print the results
-    // ...
+    println!("Best individual: {:?}", population.individuals);
 }
