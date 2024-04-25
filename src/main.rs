@@ -19,7 +19,6 @@ use genetic_algorithms::{
     population::Population,
     traits::ConfigurationT,
 };
-use itertools::Itertools;
 use rand::prelude::*;
 use rand_distr::{Normal, Uniform};
 
@@ -99,7 +98,7 @@ impl GeneT for LLMGene {
 }
 
 /// Represents an individual language model with its specific characteristics and capabilities.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Llm {
     context_length: usize,
     planning_ability: f32,
@@ -168,6 +167,7 @@ impl Default for Llm {
     }
 }
 
+#[derive(Debug)]
 /// Represents a team of collaborating LLMs, which can be a single LLM, a vertical collaboration, or a horizontal collaboration.
 enum LlmTeam {
     Single(Llm),
@@ -207,42 +207,41 @@ impl LlmTeamGenome {
         let mut team_stack: Vec<LlmTeam> = Vec::new();
         let mut llm_iter = sorted_llms.iter();
 
-        for gene in self.dna.iter().rev() {
-            match gene {
-                LLMGene::Single(_) => {
-                    if let Some(llm) = llm_iter.next() {
-                        team_stack.push(LlmTeam::Single(*llm));
-                    } else {
-                        return LlmTeam::Invalid;
-                    }
+        match self.dna[0] {
+            LLMGene::Single(_) => {
+                if let Some(llm) = llm_iter.next() {
+                    team_stack.push(LlmTeam::Single(*llm));
+                } else {
+                    return LlmTeam::Invalid;
                 }
-                LLMGene::Horizontal(_) => {
-                    let mut members: Vec<LlmTeam> = Vec::new();
-                    while let Some(team) = team_stack.pop() {
-                        if let LlmTeam::Vertical { .. } = team {
-                            team_stack.push(team);
-                            break;
+            }
+            _ => {
+                for gene in self.dna.iter().skip(1).rev() {
+                    match gene {
+                        LLMGene::Single(_) => {
+                            if let Some(llm) = llm_iter.next() {
+                                team_stack.push(LlmTeam::Single(*llm));
+                            } else {
+                                break;
+                            }
                         }
-                        members.push(team);
-                    }
-                    team_stack.push(LlmTeam::Horizontal { members });
-                }
-                LLMGene::Vertical(_) => {
-                    let mut followers: Vec<LlmTeam> = Vec::new();
-                    while let Some(team) = team_stack.pop() {
-                        if let LlmTeam::Horizontal { .. } = team {
-                            team_stack.push(team);
-                            break;
+                        LLMGene::Vertical(_) => {
+                            let mut followers: Vec<LlmTeam> = Vec::new();
+                            while let Some(team) = team_stack.pop() {
+                                followers.push(team);
+                            }
+                            team_stack.push(LlmTeam::Vertical {
+                                leader: Box::new(LlmTeam::Single(*llm_iter.next().unwrap())),
+                                followers,
+                            });
                         }
-                        followers.push(team);
-                    }
-                    if let Some(leader) = team_stack.pop() {
-                        team_stack.push(LlmTeam::Vertical {
-                            leader: Box::new(leader),
-                            followers,
-                        });
-                    } else {
-                        return LlmTeam::Invalid;
+                        LLMGene::Horizontal(_) => {
+                            let mut followers: Vec<LlmTeam> = Vec::new();
+                            while let Some(team) = team_stack.pop() {
+                                followers.push(team);
+                            }
+                            team_stack.push(LlmTeam::Horizontal { members: followers });
+                        }
                     }
                 }
             }
@@ -337,12 +336,11 @@ impl Default for Task {
             / 3.0;
         let economic_value = (1.0 - avg_difficulty) * root_task_token_estimate as f32;
 
-        let num_llms = Uniform::new(1, 15).sample(&mut rng);
         Self {
             root_task,
             subtasks,
             economic_value,
-            llms: vec![vec![Llm::default(); num_llms]; LLM_TEAMS_PER_TASK],
+            llms: vec![vec![Llm::default(); GENOME_LENGTH]; LLM_TEAMS_PER_TASK],
         }
     }
 }
@@ -360,6 +358,9 @@ impl LlmTeam {
             LlmTeam::Vertical { leader, followers } => {
                 let subtasks = leader.break_down_task(task);
                 if subtasks.is_empty() {
+                    return false;
+                }
+                if followers.is_empty() {
                     return false;
                 }
                 let chunks = subtasks
@@ -469,7 +470,12 @@ impl GenotypeT for LlmTeamGenome {
                 total_fitness += success_count as f64 / LLM_TEAMS_PER_TASK as f64;
             }
         }
-        self.set_fitness(total_fitness);
+        self.fitness += total_fitness;
+
+        // flip a coin, 50% chance of success
+        // let mut rng = thread_rng();
+        // let success = rng.gen_bool(0.5);
+        // self.fitness += if success { 1.0 } else { 0.0 };
     }
 
     fn get_fitness(&self) -> f64 {
@@ -497,9 +503,15 @@ fn generate_all_combinations() -> Vec<LlmTeamGenome> {
             age: 0,
             fitness: 0.0,
         };
-        let genes = (0..GENOME_LENGTH)
+        let mut genes = (0..GENOME_LENGTH)
             .map(|j| LLMGene::from_id((i + j as i32) % GENOME_LENGTH as i32))
             .collect::<Vec<_>>();
+        // shuffle the genes
+        let mut rng = thread_rng();
+        genes.shuffle(&mut rng);
+        genome.set_dna(&genes);
+        combinations.push(genome.clone());
+        genes.shuffle(&mut rng);
         genome.set_dna(&genes);
         combinations.push(genome);
     }
@@ -520,10 +532,22 @@ fn main() {
         .with_crossover_method(Crossover::Cycle)
         .with_mutation_method(Mutation::Swap)
         .with_survivor_method(Survivor::Fitness)
-        .with_logs(genetic_algorithms::configuration::LogLevel::Trace)
+        // .with_logs(genetic_algorithms::configuration::LogLevel::Trace)
+        .with_alleles(vec![
+            LLMGene::from_id(0),
+            LLMGene::from_id(1),
+            LLMGene::from_id(2),
+            LLMGene::from_id(3),
+            LLMGene::from_id(4),
+            LLMGene::from_id(5),
+        ])
+        .with_adaptive_ga(true)
+        .with_crossover_probability_min(0.2)
+        .with_crossover_probability_max(0.8)
         .with_population(population)
+        .with_max_generations(1000)
         .run();
-    
+
     // Sort the individuals in the population by their fitness
     population
         .individuals
@@ -531,6 +555,7 @@ fn main() {
 
     // Get the best individual from the sorted population
     let best_genome = &population.individuals[0];
+    println!("Best individual: {:?}", best_genome);
 
     // Parse the genotype of the best individual
     // let best_team = best_genome.parse_genotype();

@@ -1,0 +1,35 @@
+   Compiling collabo v0.1.0 (/Users/dhruvdh/Library/CloudStorage/Dropbox/documents/PhD/8500/collabo)
+warning: unused import: `itertools::Itertools`
+  --> src/main.rs:22:5
+   |
+22 | use itertools::Itertools;
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: field `cost_per_token` is never read
+   --> src/main.rs:108:5
+    |
+103 | struct Llm {
+    |        --- field in this struct
+...
+108 |     cost_per_token: f32,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `Llm` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `economic_value` is never read
+   --> src/main.rs:264:5
+    |
+261 | struct Task {
+    |        ---- field in this struct
+...
+264 |     economic_value: f32,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `Task` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `collabo` (bin "collabo") generated 3 warnings
+    Finished `release` profile [optimized] target(s) in 1.34s
+     Running `target/release/collabo`
