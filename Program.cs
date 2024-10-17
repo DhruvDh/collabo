@@ -135,7 +135,6 @@ public class HorizontalLlmTeam : LlmTeam
 
 public class LlmTeamChromosome : ChromosomeBase
 {
-    public List<LLMGene> Dna { get; private set; }
     public int Age { get; set; }
     public double FitnessValue { get; set; }
 
@@ -143,17 +142,14 @@ public class LlmTeamChromosome : ChromosomeBase
 
     public LlmTeamChromosome() : base(GenomeLength)
     {
-        Dna = new List<LLMGene>(GenomeLength);
-        for (int i = 0; i < GenomeLength; i++)
-        {
-            Dna.Add((LLMGene)GenerateGene(i).Value);
-        }
+        CreateGenes();
     }
 
     public override Gene GenerateGene(int geneIndex)
     {
-        return new Gene(RandomizationProvider.Current.GetInt(0, 3));
+        return new Gene(RandomizationProvider.Current.GetInt(0, Enum.GetValues(typeof(LLMGene)).Length));
     }
+
     public override IChromosome CreateNew()
     {
         return new LlmTeamChromosome();
@@ -161,18 +157,25 @@ public class LlmTeamChromosome : ChromosomeBase
 
     public override IChromosome Clone()
     {
-        var clone = new LlmTeamChromosome
+        var clone = base.Clone() as LlmTeamChromosome;
+        if (clone == null)
         {
-            Dna = new List<LLMGene>(Dna),
-            Age = Age,
-            FitnessValue = FitnessValue
-        };
+            throw new InvalidOperationException("Failed to clone chromosome.");
+        }
+        clone.Age = this.Age;
+        clone.FitnessValue = this.FitnessValue;
         return clone;
+    }
+
+    public List<LLMGene> GetDna()
+    {
+        return GetGenes().Select(g => (LLMGene)(int)g.Value).ToList();
     }
 
     public Option<LlmTeam> ParseGenotype(List<Llm> llms)
     {
-        if (Dna == null || Dna.Count == 0)
+        var dna = GetDna();
+        if (dna == null || dna.Count == 0)
         {
             return Option<LlmTeam>.None;
         }
@@ -181,7 +184,7 @@ public class LlmTeamChromosome : ChromosomeBase
         var teamStack = new Stack<LlmTeam>();
         var llmIter = sortedLlms.GetEnumerator();
 
-        if (Dna[0] == LLMGene.Single)
+        if (dna[0] == LLMGene.Single)
         {
             if (llmIter.MoveNext())
             {
@@ -190,9 +193,9 @@ public class LlmTeamChromosome : ChromosomeBase
             return Option<LlmTeam>.None;
         }
 
-        for (int i = Dna.Count - 1; i >= 1; i--)
+        for (int i = dna.Count - 1; i >= 1; i--)
         {
-            switch (Dna[i])
+            switch (dna[i])
             {
                 case LLMGene.Single:
                     if (llmIter.MoveNext())
@@ -239,7 +242,6 @@ public class LlmTeamChromosome : ChromosomeBase
         }
     }
 }
-
 public class LlmTeamFitness : IFitness
 {
     private const int TaskCount = 10;
@@ -350,11 +352,11 @@ class Program
         }
 
         var selection = new TournamentSelection();
-        var crossover = new CycleCrossover();
+        var crossover = new UniformCrossover();
         var mutation = new UniformMutation();
         var fitness = new LlmTeamFitness();
         var chromosome = new LlmTeamChromosome();
-        var population = new Population(50, 70, chromosome);
+        var population = new Population(1000, 2000, chromosome);
 
         var ga = new GeneticAlgorithm(population, fitness, selection, crossover, mutation)
         {
@@ -371,7 +373,7 @@ class Program
         var bestChromosome = ga.BestChromosome as LlmTeamChromosome;
         if (bestChromosome != null)
         {
-            Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.Dna)}");
+            Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
         }
     }
 }
