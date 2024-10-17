@@ -1,6 +1,10 @@
 ﻿using GeneticSharp;
+using GeneticSharp.Extensions;
 using MathNet.Numerics.Distributions;
 using LanguageExt;
+using System.Diagnostics;
+using System.Collections.Generic;
+
 public class Llm
 {
     public int ContextLength { get; }
@@ -341,29 +345,63 @@ public class Task
         Enumerable.Range(0, amount).Select(_ => new Task()).ToList();
 }
 
+
 class Program
 {
     static void Main(string[] args)
     {
         int maxGenerations = 10;
-        if (args.Length > 1 && args[0] == "-m" && int.TryParse(args[1], out int parsedValue))
+        bool useAutoConfig = false;
+
+        // Parse command-line arguments
+        for (int i = 0; i < args.Length; i++)
         {
-            maxGenerations = parsedValue;
+            if (args[i] == "-m" && i + 1 < args.Length && int.TryParse(args[i + 1], out int parsedValue))
+            {
+                maxGenerations = parsedValue;
+                i++; // Skip next argument as it's part of this option
+            }
+            else if (args[i] == "--autoconfig")
+            {
+                useAutoConfig = true;
+            }
         }
 
+        if (useAutoConfig)
+        {
+            RunAutoConfigGA(maxGenerations);
+        }
+        else
+        {
+            RunStandardGA(maxGenerations);
+        }
+    }
+
+    static void RunStandardGA(int maxGenerations)
+    {
         var selection = new TournamentSelection();
-        var crossover = new UniformCrossover();
-        var mutation = new UniformMutation();
+        var crossover = new OnePointCrossover();
+        var mutation = new TworsMutation();
         var fitness = new LlmTeamFitness();
         var chromosome = new LlmTeamChromosome();
-        var population = new Population(1000, 2000, chromosome);
+        var population = new Population(100, 200, chromosome);
 
         var ga = new GeneticAlgorithm(population, fitness, selection, crossover, mutation)
         {
             Termination = new GenerationNumberTermination(maxGenerations),
             MutationProbability = 0.2f,
             CrossoverProbability = 0.8f,
-            TaskExecutor = new ParallelTaskExecutor()
+            TaskExecutor = new ParallelTaskExecutor(),
+        };
+
+        // Implementing Elitism
+        // ga.Reinsertion = new ElitistReinsertion();
+
+        // Logging GA progress
+        ga.GenerationRan += (sender, e) =>
+        {
+            var bestFitness = ga.BestChromosome.Fitness;
+            Console.WriteLine($"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}");
         };
 
         Console.WriteLine("Starting genetic algorithm...");
@@ -375,5 +413,177 @@ class Program
         {
             Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
         }
+    }
+
+    static void RunAutoConfigGA(int maxGenerations)
+    {
+        Console.WriteLine("Starting AutoConfig genetic algorithm to optimize GA operators...");
+
+        var targetFitness = new LlmTeamFitness();
+        var targetChromosome = new LlmTeamChromosome();
+
+        // Create a custom AutoConfigChromosome with only compatible operators
+        var autoConfigFitness = new AutoConfigFitness(targetFitness, targetChromosome)
+        {
+            PopulationMinSize = 50,
+            PopulationMaxSize = 100,
+            Termination = new GenerationNumberTermination(maxGenerations / 2),
+            TaskExecutor = new ParallelTaskExecutor(),
+        };
+
+        var autoConfigChromosome = new CustomAutoConfigChromosome();
+        var autoConfigPopulation = new Population(20, 40, autoConfigChromosome);
+
+        var autoConfigGa = new GeneticAlgorithm(autoConfigPopulation, autoConfigFitness, new EliteSelection(), new UniformCrossover(), new UniformMutation())
+        {
+            Termination = new GenerationNumberTermination(maxGenerations / 2),
+            MutationProbability = 0.3f,
+            CrossoverProbability = 0.7f,
+            TaskExecutor = new ParallelTaskExecutor(),
+        };
+
+        autoConfigGa.GenerationRan += (sender, e) =>
+        {
+            var bestAutoChromosome = autoConfigGa.BestChromosome as CustomAutoConfigChromosome;
+            Console.WriteLine($"Meta Generation {autoConfigGa.GenerationsNumber}: Best Meta Fitness = {bestAutoChromosome?.Fitness}");
+        };
+
+        autoConfigGa.Start();
+
+        var bestAutoConfigChromosome = autoConfigGa.BestChromosome as CustomAutoConfigChromosome;
+
+        if (bestAutoConfigChromosome != null)
+        {
+            // Extract the optimized operators
+            var selection = bestAutoConfigChromosome.Selection;
+            var crossover = bestAutoConfigChromosome.Crossover;
+            var mutation = bestAutoConfigChromosome.Mutation;
+
+            Console.WriteLine("Optimized GA operators found:");
+            Console.WriteLine($"Selection Operator: {selection.GetType().Name}");
+            Console.WriteLine($"Crossover Operator: {crossover.GetType().Name}");
+            Console.WriteLine($"Mutation Operator: {mutation.GetType().Name}");
+
+            // Run the standard GA with optimized operators
+            var fitness = new LlmTeamFitness();
+            var chromosome = new LlmTeamChromosome();
+            var population = new Population(100, 200, chromosome);
+
+            var ga = new GeneticAlgorithm(population, fitness, selection, crossover, mutation)
+            {
+                Termination = new GenerationNumberTermination(maxGenerations),
+                MutationProbability = 0.2f,
+                CrossoverProbability = 0.8f,
+                TaskExecutor = new ParallelTaskExecutor(),
+                Reinsertion = new ElitistReinsertion(),
+            };
+
+            ga.GenerationRan += (sender, e) =>
+            {
+                var bestFitness = ga.BestChromosome.Fitness;
+                Console.WriteLine($"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}");
+            };
+
+            Console.WriteLine("Starting genetic algorithm with optimized operators...");
+            ga.Start();
+
+            Console.WriteLine($"Best solution found has {ga.BestChromosome.Fitness} fitness.");
+            var bestChromosome = ga.BestChromosome as LlmTeamChromosome;
+            if (bestChromosome != null)
+            {
+                Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("Failed to find optimized operators using AutoConfig.");
+        }
+    }
+}
+
+// Custom AutoConfigChromosome that includes only compatible operators
+public sealed class CustomAutoConfigChromosome : ChromosomeBase
+{
+    private static readonly IRandomization s_randomization = RandomizationProvider.Current;
+
+    private static readonly IList<string> s_availableSelections = new List<string>
+    {
+        "EliteSelection",
+        "TournamentSelection",
+        "RouletteWheelSelection"
+    };
+
+    private static readonly IList<string> s_availableCrossovers = new List<string>
+    {
+        "UniformCrossover",
+        "OnePointCrossover",
+        "TwoPointCrossover"
+    };
+
+    private static readonly IList<string> s_availableMutations = new List<string>
+    {
+        "UniformMutation",
+        "ReverseSequenceMutation",
+        "TworsMutation"
+    };
+
+    public CustomAutoConfigChromosome() : base(3)
+    {
+        CreateGenes();
+    }
+
+    public ISelection Selection
+    {
+        get
+        {
+            return GetGene(0).Value as ISelection;
+        }
+    }
+
+    public ICrossover Crossover
+    {
+        get
+        {
+            return GetGene(1).Value as ICrossover;
+        }
+    }
+
+    public IMutation Mutation
+    {
+        get
+        {
+            return GetGene(2).Value as IMutation;
+        }
+    }
+
+    public override IChromosome CreateNew()
+    {
+        return new CustomAutoConfigChromosome();
+    }
+
+    public override Gene GenerateGene(int geneIndex)
+    {
+        switch (geneIndex)
+        {
+            // Selection.
+            case 0:
+                return CreateRandomGene<ISelection>(s_availableSelections);
+
+            // Crossover.
+            case 1:
+                return CreateRandomGene<ICrossover>(s_availableCrossovers);
+
+            // Mutation.
+            case 2:
+                return CreateRandomGene<IMutation>(s_availableMutations);
+
+            default:
+                throw new InvalidOperationException("Invalid AutoConfigChromosome gene index.");
+        }
+    }
+
+    private static Gene CreateRandomGene<TGeneValue>(IList<string> available)
+    {
+        return new Gene(TypeHelper.CreateInstanceByName<TGeneValue>(available[s_randomization.GetInt(0, available.Count)]));
     }
 }
