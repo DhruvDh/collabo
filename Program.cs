@@ -348,6 +348,35 @@ public class Task
 
 class Program
 {
+    static void PrintTeamStructure(LlmTeam team, string indent = "")
+    {
+        switch (team)
+        {
+            case SingleLlmTeam singleTeam:
+                Console.WriteLine($"{indent}Single LLM (Competency: {singleTeam.Llm.Competency:F2}, Planning Ability: {singleTeam.Llm.PlanningAbility:F2})");
+                break;
+            case VerticalLlmTeam verticalTeam:
+                Console.WriteLine($"{indent}Vertical LLM Team:");
+                Console.WriteLine($"{indent}  Leader:");
+                PrintTeamStructure(verticalTeam.Leader, indent + "    ");
+                Console.WriteLine($"{indent}  Followers:");
+                foreach (var follower in verticalTeam.Followers)
+                {
+                    PrintTeamStructure(follower, indent + "    ");
+                }
+                break;
+            case HorizontalLlmTeam horizontalTeam:
+                Console.WriteLine($"{indent}Horizontal LLM Team:");
+                foreach (var member in horizontalTeam.Members)
+                {
+                    PrintTeamStructure(member, indent + "  ");
+                }
+                break;
+            default:
+                Console.WriteLine($"{indent}Unknown team type.");
+                break;
+        }
+    }
     static void Main(string[] args)
     {
         int maxGenerations = 10;
@@ -377,6 +406,97 @@ class Program
         }
     }
 
+    static void AnalyzePopulation(Population population, int generationNumber)
+    {
+        int singleTeams = 0;
+        int verticalTeams = 0;
+        int horizontalTeams = 0;
+        int hybridTeams = 0;
+        int invalidTeams = 0;
+
+        foreach (var chromosome in population.CurrentGeneration.Chromosomes)
+        {
+            var llmChromosome = chromosome as LlmTeamChromosome;
+            if (llmChromosome == null) continue;
+
+            // Generate LLMs and parse the genotype
+            var sampleLlms = Task.GenerateTasks(1)[0].Llms[0];
+            var teamOption = llmChromosome.ParseGenotype(sampleLlms);
+
+            teamOption.Match(
+                Some: team =>
+                {
+                    var teamType = GetTeamType(team);
+                    switch (teamType)
+                    {
+                        case "Single":
+                            singleTeams++;
+                            break;
+                        case "Vertical":
+                            verticalTeams++;
+                            break;
+                        case "Horizontal":
+                            horizontalTeams++;
+                            break;
+                        case "Hybrid":
+                            hybridTeams++;
+                            break;
+                    }
+                },
+                None: () => invalidTeams++
+            );
+        }
+
+        Console.WriteLine($"Generation {generationNumber} Population Statistics:");
+        Console.WriteLine($"Single Teams: {singleTeams}");
+        Console.WriteLine($"Vertical Teams: {verticalTeams}");
+        Console.WriteLine($"Horizontal Teams: {horizontalTeams}");
+        Console.WriteLine($"Hybrid Teams: {hybridTeams}");
+        Console.WriteLine($"Invalid Teams: {invalidTeams}");
+        Console.WriteLine();
+    }
+
+    static string GetTeamType(LlmTeam team)
+    {
+        bool hasVertical = false;
+        bool hasHorizontal = false;
+
+        void TraverseTeam(LlmTeam t)
+        {
+            switch (t)
+            {
+                case SingleLlmTeam _:
+                    break;
+                case VerticalLlmTeam verticalTeam:
+                    hasVertical = true;
+                    TraverseTeam(verticalTeam.Leader);
+                    foreach (var follower in verticalTeam.Followers)
+                    {
+                        TraverseTeam(follower);
+                    }
+                    break;
+                case HorizontalLlmTeam horizontalTeam:
+                    hasHorizontal = true;
+                    foreach (var member in horizontalTeam.Members)
+                    {
+                        TraverseTeam(member);
+                    }
+                    break;
+            }
+        }
+
+        TraverseTeam(team);
+
+        if (hasVertical && hasHorizontal)
+            return "Hybrid";
+        if (hasVertical)
+            return "Vertical";
+        if (hasHorizontal)
+            return "Horizontal";
+        return "Single";
+    }
+
+
     static void RunStandardGA(int maxGenerations)
     {
         var selection = new TournamentSelection();
@@ -401,8 +521,28 @@ class Program
         ga.GenerationRan += (sender, e) =>
         {
             var bestFitness = ga.BestChromosome.Fitness;
+            var bestChromosome = ga.BestChromosome as LlmTeamChromosome;
             Console.WriteLine($"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}");
+
+            if (bestChromosome != null)
+            {
+                Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
+
+                // Use a sample task to parse and display the team structure
+                var sampleLlms = Task.GenerateTasks(1)[0].Llms[0];
+                var bestTeamOption = bestChromosome.ParseGenotype(sampleLlms);
+
+                bestTeamOption.Match(
+                    Some: bestTeam =>
+                    {
+                        Console.WriteLine("Best team structure:");
+                        PrintTeamStructure(bestTeam);
+                    },
+                    None: () => Console.WriteLine("Invalid team structure.")
+                );
+            }
         };
+
 
         Console.WriteLine("Starting genetic algorithm...");
         ga.Start();
@@ -412,6 +552,19 @@ class Program
         if (bestChromosome != null)
         {
             Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
+
+            // Assuming you have a list of LLMs to use (e.g., from a task)
+            var sampleLlms = Task.GenerateTasks(1)[0].Llms[0];
+            var bestTeamOption = bestChromosome.ParseGenotype(sampleLlms);
+
+            bestTeamOption.Match(
+                Some: bestTeam =>
+                {
+                    Console.WriteLine("Winning team structure:");
+                    PrintTeamStructure(bestTeam);
+                },
+                None: () => Console.WriteLine("Invalid team structure.")
+            );
         }
     }
 
@@ -536,7 +689,7 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(0).Value as ISelection;
+            return GetGene(0).Value as ISelection ?? throw new InvalidOperationException("Selection gene is not of type ISelection.");
         }
     }
 
@@ -544,7 +697,7 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(1).Value as ICrossover;
+            return GetGene(1).Value as ICrossover ?? throw new InvalidOperationException("Crossover gene is not of type ICrossover.");
         }
     }
 
@@ -552,7 +705,7 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(2).Value as IMutation;
+            return GetGene(2).Value as IMutation ?? throw new InvalidOperationException("Mutation gene is not of type IMutation.");
         }
     }
 
