@@ -1,10 +1,174 @@
 ﻿using GeneticSharp;
 using GeneticSharp.Extensions;
-using MathNet.Numerics.Distributions;
 using LanguageExt;
-using System.Diagnostics;
-using System.Collections.Generic;
+using MathNet.Numerics.Distributions;
 
+/// <summary>
+/// Contains all constant values used throughout the application
+/// </summary>
+public static class Constants
+{
+    /// <summary>
+    /// Constants related to LLM configuration and behavior
+    /// </summary>
+    public static class Llm
+    {
+        public static class Ability
+        {
+            public const double Mean = 0.7;
+            public const double StdDev = 0.3;
+            public const float Min = 0.0f;
+            public const float Max = 1.0f;
+        }
+
+        public static class ContextLength
+        {
+            public const int DefaultLength = 8192;  // Renamed from BaseLength
+            public const double LogStdDev = 2.0;
+            public const int Min = 4096;
+            public const int Max = 262144;
+        }
+
+        public static class Verbosity
+        {
+            public const double Min = 0.5;
+            public const double Max = 1.5;
+            public const double Default = 1.0;
+        }
+
+        public static class CostPerToken
+        {
+            public const double DefaultCost = 0.0000015;
+            public const double StdDevMultiplier = 1.5;
+            public const double Min = 0.0000006;
+            public const double Max = 0.00003;
+        }
+
+        public static class Performance
+        {
+            public const double CompetencyNoise = 0.2;
+            public const double PlanningNoise = 0.1;
+            public const double SuccessThreshold = 0.5;
+            public const double DefaultSuccessRate = 0.7;
+        }
+    }
+
+    /// <summary>
+    /// Constants related to task generation and processing
+    /// </summary>
+    public static class Task
+    {
+        public static class Generation
+        {
+            public const double DifficultyMean = 0.8;
+            public const double DifficultyStdDev = 0.2;
+            public const float DifficultyMin = 0.0f;
+            public const float DifficultyMax = 1.0f;
+            public const float DifficultyIncrement = 0.1f;
+            public const float AverageDifficultyDivisor = 3.0f;
+        }
+
+        public static class TokenEstimates
+        {
+            public const double Min = 1000;
+            public const double Max = 200000;
+            public const double RootTaskMean = 24000;
+            public const double RootTaskStdDev = 15000;
+            public const double SubtaskDivisor = 10.0;
+        }
+
+        public static class Structure
+        {
+            public const double MinSubtasks = 1;
+            public const double MaxSubtasks = 15;
+            public const int DefaultSubtasks = 5;
+        }
+    }
+
+    /// <summary>
+    /// Constants related to genetic algorithm configuration
+    /// </summary>
+    public static class GeneticAlgorithm
+    {
+        public static class Standard
+        {
+            public const int PopulationMin = 100;
+            public const int PopulationMax = 200;
+            public const float MutationProbability = 0.2f;
+            public const float CrossoverProbability = 0.8f;
+            public const int GenomeLength = 6;
+            public const int DefaultMaxGenerations = 10;
+            public const int DefaultPopulationSize = 150;
+        }
+
+        public static class AutoConfig
+        {
+            public const int PopulationMin = 20;
+            public const int PopulationMax = 40;
+            public const float MutationProbability = 0.3f;
+            public const float CrossoverProbability = 0.7f;
+            public const int GeneCount = 3;
+            public const int DefaultGenerations = 5;
+        }
+
+        public static class Evaluation
+        {
+            public const int TaskCount = 10;
+            public const int TeamsPerTask = 100;
+            public const int LlmTeamsPerTask = 100;
+        }
+    }
+
+    /// <summary>
+    /// Constants related to team configuration and formatting
+    /// </summary>
+    public static class Team
+    {
+        public const double MajorityThreshold = 0.5;
+
+        public static class Analysis
+        {
+            public const int DefaultIndentSpaces = 2;
+            public const int BaseIndentSpaces = 4;
+        }
+
+        public static class Format
+        {
+            public const string DefaultIndent = "  ";
+            public const string IndentStep = "    ";
+            public const int DefaultIndentLength = 2;
+        }
+    }
+
+    /// <summary>
+    /// Mathematical constants used throughout the application
+    /// </summary>
+    public static class Math
+    {
+        public const float Half = 0.5f;
+        public const float Third = 0.333333f;
+    }
+
+    /// <summary>
+    /// Program-wide default settings
+    /// </summary>
+    public static class Defaults
+    {
+        public static class Program
+        {
+            public const int MaxGenerations = 10;
+            public const bool UseAutoConfig = false;
+            public const string DefaultIndent = "  ";
+        }
+
+        public static class Validation
+        {
+            public const double MinProbability = 0.0;
+            public const double MaxProbability = 1.0;
+            public const int MinCount = 1;
+        }
+    }
+}
 public class Llm
 {
     public int ContextLength { get; }
@@ -13,18 +177,43 @@ public class Llm
     public float Competency { get; }
     public float CostPerToken { get; }
 
-    private static readonly Normal AbilityDistribution = new Normal(0.7, 0.3);
-    private static readonly LogNormal ContextLengthDistribution = new LogNormal(Math.Log(8192), Math.Log(2));
-    private static readonly ContinuousUniform VerbosityDistribution = new ContinuousUniform(0.5, 1.5);
-    private static readonly LogNormal CostPerTokenDistribution = new LogNormal(Math.Log(0.0000015), Math.Log(1.5));
+    private static readonly Normal AbilityDistribution = new Normal(
+        Constants.Llm.Ability.Mean,
+        Constants.Llm.Ability.StdDev
+    );
+
+    private static readonly LogNormal ContextLengthDistribution = new LogNormal(
+        Constants.Llm.ContextLength.DefaultLength,
+        Constants.Llm.ContextLength.LogStdDev
+    );
+
+    private static readonly ContinuousUniform VerbosityDistribution = new ContinuousUniform(
+        Constants.Llm.Verbosity.Min,
+        Constants.Llm.Verbosity.Max
+    );
+
+    private static readonly LogNormal CostPerTokenDistribution = new LogNormal(
+        Constants.Llm.CostPerToken.DefaultCost,
+        Constants.Llm.CostPerToken.StdDevMultiplier
+    );
 
     public Llm()
     {
-        ContextLength = (int)Math.Clamp(Math.Pow(2, Math.Round(ContextLengthDistribution.Sample())), 4096, 262144);
+        ContextLength = (int)
+            Math.Clamp(
+                Math.Pow(2, Math.Round(ContextLengthDistribution.Sample())),
+                Constants.Llm.ContextLength.Min,
+                Constants.Llm.ContextLength.Max
+            );
         PlanningAbility = (float)Math.Clamp(AbilityDistribution.Sample(), 0, 1);
         Competency = (float)Math.Clamp(AbilityDistribution.Sample(), 0, 1);
         Verbosity = (float)VerbosityDistribution.Sample();
-        CostPerToken = (float)Math.Clamp(CostPerTokenDistribution.Sample(), 0.0000006, 0.00003);
+        CostPerToken = (float)
+            Math.Clamp(
+                CostPerTokenDistribution.Sample(),
+                Constants.Llm.CostPerToken.Min,
+                Constants.Llm.CostPerToken.Max
+            );
     }
 
     public bool SolveTask(Task task)
@@ -34,15 +223,20 @@ public class Llm
         float avgCompetency = (scaledCompetency + scaledPlanningAbility) / 2f;
 
         int scaledTokenEstimate = (int)(task.RootTask.TokenEstimate * Verbosity);
-        float adjustedCompetency = scaledTokenEstimate > ContextLength ? avgCompetency / 2f : avgCompetency;
+        float adjustedCompetency =
+            scaledTokenEstimate > ContextLength ? avgCompetency / 2f : avgCompetency;
 
-        return new Normal(adjustedCompetency, 0.2).Sample() > 0.5;
+        return new Normal(adjustedCompetency, Constants.Llm.Performance.CompetencyNoise)
+            .Sample()
+            > Constants.Llm.Performance.SuccessThreshold;
     }
 
     public List<SubTask> BreakDownTask(Task task)
     {
-        float threshold = 1f - (task.RootTask.ReasoningRequired + task.RootTask.PlanningRequired) / 2f;
-        bool success = new Normal(PlanningAbility, 0.1).Sample() > threshold;
+        float threshold =
+            1f - (task.RootTask.ReasoningRequired + task.RootTask.PlanningRequired) / 2f;
+        bool success =
+            new Normal(PlanningAbility, Constants.Llm.Performance.PlanningNoise).Sample() > threshold;
 
         if (success)
         {
@@ -50,13 +244,24 @@ public class Llm
         }
         else
         {
-            return task.Subtasks.Select(subtask => new SubTask
-            {
-                ReasoningRequired = Math.Min(subtask.ReasoningRequired + 0.1f, 1f),
-                PlanningRequired = Math.Min(subtask.PlanningRequired + 0.1f, 1f),
-                CompetencyRequired = Math.Min(subtask.CompetencyRequired + 0.1f, 1f),
-                TokenEstimate = subtask.TokenEstimate
-            }).ToList();
+            return task
+                .Subtasks.Select(subtask => new SubTask
+                {
+                    ReasoningRequired = Math.Min(
+                        subtask.ReasoningRequired + Constants.Task.Generation.DifficultyIncrement,
+                        Constants.Task.Generation.DifficultyMax
+                    ),
+                    PlanningRequired = Math.Min(
+                        subtask.PlanningRequired + Constants.Task.Generation.DifficultyIncrement,
+                        Constants.Task.Generation.DifficultyMax
+                    ),
+                    CompetencyRequired = Math.Min(
+                        subtask.CompetencyRequired + Constants.Task.Generation.DifficultyIncrement,
+                        Constants.Task.Generation.DifficultyMax
+                    ),
+                    TokenEstimate = subtask.TokenEstimate,
+                })
+                .ToList();
         }
     }
 }
@@ -65,8 +270,9 @@ public enum LLMGene
 {
     Single = 0,
     Vertical = 1,
-    Horizontal = 2
+    Horizontal = 2,
 }
+
 public abstract class LlmTeam
 {
     public abstract bool SolveTask(Task task);
@@ -107,13 +313,13 @@ public class VerticalLlmTeam : LlmTeam
         }
 
         var chunks = subtasks.Chunk(Followers.Count).ToList();
-        return Followers.Zip(chunks).All(pair =>
-        {
-            var (follower, subtaskChunk) = pair;
-            return subtaskChunk.All(subtask =>
-                follower.SolveTask(new Task())
-            );
-        });
+        return Followers
+            .Zip(chunks)
+            .All(pair =>
+            {
+                var (follower, subtaskChunk) = pair;
+                return subtaskChunk.All(subtask => follower.SolveTask(new Task()));
+            });
     }
 
     public override List<SubTask> BreakDownTask(Task task) => new List<SubTask>();
@@ -131,7 +337,7 @@ public class HorizontalLlmTeam : LlmTeam
     public override bool SolveTask(Task task)
     {
         var results = Members.Select(member => member.SolveTask(task)).ToList();
-        return results.Count(r => r) > results.Count / 2;
+        return results.Count(r => r) > results.Count * Constants.Team.MajorityThreshold;
     }
 
     public override List<SubTask> BreakDownTask(Task task) => new List<SubTask>();
@@ -142,16 +348,17 @@ public class LlmTeamChromosome : ChromosomeBase
     public int Age { get; set; }
     public double FitnessValue { get; set; }
 
-    private const int GenomeLength = 6;
-
-    public LlmTeamChromosome() : base(GenomeLength)
+    public LlmTeamChromosome()
+        : base(Constants.GeneticAlgorithm.AutoConfig.GeneCount)
     {
         CreateGenes();
     }
 
     public override Gene GenerateGene(int geneIndex)
     {
-        return new Gene(RandomizationProvider.Current.GetInt(0, Enum.GetValues(typeof(LLMGene)).Length));
+        return new Gene(
+            RandomizationProvider.Current.GetInt(0, Enum.GetValues(typeof(LLMGene)).Length)
+        );
     }
 
     public override IChromosome CreateNew()
@@ -184,7 +391,8 @@ public class LlmTeamChromosome : ChromosomeBase
             return Option<LlmTeam>.None;
         }
 
-        var sortedLlms = llms.OrderByDescending(llm => (llm.Competency + llm.PlanningAbility) / 2).ToList();
+        var sortedLlms = llms.OrderByDescending(llm => (llm.Competency + llm.PlanningAbility) / 2)
+            .ToList();
         var teamStack = new Stack<LlmTeam>();
         var llmIter = sortedLlms.GetEnumerator();
 
@@ -215,7 +423,9 @@ public class LlmTeamChromosome : ChromosomeBase
                         {
                             followers.Add(teamStack.Pop());
                         }
-                        teamStack.Push(new VerticalLlmTeam(new SingleLlmTeam(llmIter.Current), followers));
+                        teamStack.Push(
+                            new VerticalLlmTeam(new SingleLlmTeam(llmIter.Current), followers)
+                        );
                     }
                     break;
                 case LLMGene.Horizontal:
@@ -246,10 +456,11 @@ public class LlmTeamChromosome : ChromosomeBase
         }
     }
 }
+
 public class LlmTeamFitness : IFitness
 {
-    private const int TaskCount = 10;
-    private const int LlmTeamsPerTask = 100;
+    private const int TaskCount = Constants.GeneticAlgorithm.Evaluation.TaskCount;
+    private const int LlmTeamsPerTask = Constants.GeneticAlgorithm.Evaluation.TeamsPerTask;
 
     public double Evaluate(IChromosome chromosome)
     {
@@ -276,7 +487,8 @@ public class LlmTeamFitness : IFitness
                             totalFitness += 1.0 / LlmTeamsPerTask;
                         }
                     },
-                    None: () => { /* Invalid team, do nothing */ }
+                    None: () => { /* Invalid team, do nothing */
+                    }
                 );
             }
         }
@@ -288,8 +500,14 @@ public class LlmTeamFitness : IFitness
 
 public class SubTask
 {
-    private static readonly Normal DifficultyDistribution = new Normal(0.8, 0.2);
-    private static readonly ContinuousUniform TokenEstimateDistribution = new ContinuousUniform(1000, 200000);
+    private static readonly Normal DifficultyDistribution = new Normal(
+        Constants.Task.Generation.DifficultyMean,
+        Constants.Task.Generation.DifficultyStdDev
+    );
+    private static readonly ContinuousUniform TokenEstimateDistribution = new ContinuousUniform(
+        Constants.Task.TokenEstimates.Min,
+        Constants.Task.TokenEstimates.Max
+    );
 
     public float ReasoningRequired { get; set; }
     public float PlanningRequired { get; set; }
@@ -306,10 +524,17 @@ public class SubTask
 
     public SubTask Clone() => (SubTask)MemberwiseClone();
 }
+
 public class Task
 {
-    private static readonly Normal RootTaskTokenEstimateDistribution = new Normal(24000, 15000);
-    private static readonly ContinuousUniform SubtaskCountDistribution = new ContinuousUniform(1, 15);
+    private static readonly Normal RootTaskTokenEstimateDistribution = new Normal(
+        Constants.Task.TokenEstimates.RootTaskMean,
+        Constants.Task.TokenEstimates.RootTaskStdDev
+    );
+    private static readonly ContinuousUniform SubtaskCountDistribution = new ContinuousUniform(
+        Constants.Task.Structure.MinSubtasks,
+        Constants.Task.Structure.MaxSubtasks
+    );
 
     public SubTask RootTask { get; set; }
     public List<SubTask> Subtasks { get; set; }
@@ -320,24 +545,46 @@ public class Task
     {
         RootTask = new SubTask
         {
-            TokenEstimate = (int)Math.Clamp(RootTaskTokenEstimateDistribution.Sample(), 1000, 200000)
+            TokenEstimate = (int)
+                Math.Clamp(
+                    RootTaskTokenEstimateDistribution.Sample(),
+                    Constants.Task.TokenEstimates.Min,
+                    Constants.Task.TokenEstimates.Max
+                ),
         };
 
         int numSubtasks = (int)SubtaskCountDistribution.Sample();
         float avgSubtaskTokenEstimate = RootTask.TokenEstimate / (float)numSubtasks;
 
-        Subtasks = Enumerable.Range(0, numSubtasks)
+        Subtasks = Enumerable
+            .Range(0, numSubtasks)
             .Select(_ => new SubTask
             {
-                TokenEstimate = (int)Math.Clamp(new Normal(avgSubtaskTokenEstimate, 15000).Sample(), 1000, 200000)
+                TokenEstimate = (int)
+                    Math.Clamp(
+                        new Normal(
+                            avgSubtaskTokenEstimate,
+                            Constants.Task.TokenEstimates.RootTaskStdDev
+                        ).Sample(),
+                        (int)Constants.Task.TokenEstimates.Min / numSubtasks,
+                        (int)Constants.Task.TokenEstimates.Max / numSubtasks
+                    ),
             })
             .ToList();
 
-        float avgDifficulty = (RootTask.ReasoningRequired + RootTask.PlanningRequired + RootTask.CompetencyRequired) / 3f;
+        float avgDifficulty =
+            (RootTask.ReasoningRequired + RootTask.PlanningRequired + RootTask.CompetencyRequired)
+            / 3f;
         EconomicValue = (1f - avgDifficulty) * RootTask.TokenEstimate;
 
-        Llms = Enumerable.Range(0, 100)
-            .Select(_ => Enumerable.Range(0, 6).Select(_ => new Llm()).ToList())
+        Llms = Enumerable
+            .Range(0, Constants.GeneticAlgorithm.Evaluation.TeamsPerTask)
+            .Select(_ =>
+                Enumerable
+                    .Range(0, Constants.GeneticAlgorithm.AutoConfig.GeneCount)
+                    .Select(_ => new Llm())
+                    .ToList()
+            )
             .ToList();
     }
 
@@ -345,31 +592,35 @@ public class Task
         Enumerable.Range(0, amount).Select(_ => new Task()).ToList();
 }
 
-
 class Program
 {
     static void PrintTeamStructure(LlmTeam team, string indent = "")
     {
+        string baseIndent = "";
+        string indentStep = "  ";
+
         switch (team)
         {
             case SingleLlmTeam singleTeam:
-                Console.WriteLine($"{indent}Single LLM (Competency: {singleTeam.Llm.Competency:F2}, Planning Ability: {singleTeam.Llm.PlanningAbility:F2})");
+                Console.WriteLine(
+                    $"{indent}Single LLM (Competency: {singleTeam.Llm.Competency:F2}, Planning Ability: {singleTeam.Llm.PlanningAbility:F2})"
+                );
                 break;
             case VerticalLlmTeam verticalTeam:
                 Console.WriteLine($"{indent}Vertical LLM Team:");
-                Console.WriteLine($"{indent}  Leader:");
-                PrintTeamStructure(verticalTeam.Leader, indent + "    ");
-                Console.WriteLine($"{indent}  Followers:");
+                Console.WriteLine($"{indent}{baseIndent}Leader:");
+                PrintTeamStructure(verticalTeam.Leader, indent + indentStep);
+                Console.WriteLine($"{indent}{baseIndent}Followers:");
                 foreach (var follower in verticalTeam.Followers)
                 {
-                    PrintTeamStructure(follower, indent + "    ");
+                    PrintTeamStructure(follower, indent + indentStep);
                 }
                 break;
             case HorizontalLlmTeam horizontalTeam:
                 Console.WriteLine($"{indent}Horizontal LLM Team:");
                 foreach (var member in horizontalTeam.Members)
                 {
-                    PrintTeamStructure(member, indent + "  ");
+                    PrintTeamStructure(member, indent + baseIndent);
                 }
                 break;
             default:
@@ -377,6 +628,7 @@ class Program
                 break;
         }
     }
+
     static void Main(string[] args)
     {
         int maxGenerations = 10;
@@ -385,7 +637,11 @@ class Program
         // Parse command-line arguments
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "-m" && i + 1 < args.Length && int.TryParse(args[i + 1], out int parsedValue))
+            if (
+                args[i] == "-m"
+                && i + 1 < args.Length
+                && int.TryParse(args[i + 1], out int parsedValue)
+            )
             {
                 maxGenerations = parsedValue;
                 i++; // Skip next argument as it's part of this option
@@ -417,7 +673,8 @@ class Program
         foreach (var chromosome in population.CurrentGeneration.Chromosomes)
         {
             var llmChromosome = chromosome as LlmTeamChromosome;
-            if (llmChromosome == null) continue;
+            if (llmChromosome == null)
+                continue;
 
             // Generate LLMs and parse the genotype
             var sampleLlms = Task.GenerateTasks(1)[0].Llms[0];
@@ -496,7 +753,6 @@ class Program
         return "Single";
     }
 
-
     static void RunStandardGA(int maxGenerations)
     {
         var selection = new TournamentSelection();
@@ -504,13 +760,17 @@ class Program
         var mutation = new TworsMutation();
         var fitness = new LlmTeamFitness();
         var chromosome = new LlmTeamChromosome();
-        var population = new Population(100, 200, chromosome);
+        var population = new Population(
+            Constants.GeneticAlgorithm.Standard.PopulationMin,
+            Constants.GeneticAlgorithm.Standard.PopulationMax,
+            chromosome
+        );
 
         var ga = new GeneticAlgorithm(population, fitness, selection, crossover, mutation)
         {
             Termination = new GenerationNumberTermination(maxGenerations),
-            MutationProbability = 0.2f,
-            CrossoverProbability = 0.8f,
+            MutationProbability = Constants.GeneticAlgorithm.Standard.MutationProbability,
+            CrossoverProbability = Constants.GeneticAlgorithm.Standard.CrossoverProbability,
             TaskExecutor = new ParallelTaskExecutor(),
         };
 
@@ -543,7 +803,6 @@ class Program
             }
         };
 
-
         Console.WriteLine("Starting genetic algorithm...");
         ga.Start();
 
@@ -570,35 +829,36 @@ class Program
 
     static void RunAutoConfigGA(int maxGenerations)
     {
-        Console.WriteLine("Starting AutoConfig genetic algorithm to optimize GA operators...");
-
         var targetFitness = new LlmTeamFitness();
         var targetChromosome = new LlmTeamChromosome();
+        var autoConfigFitness = new AutoConfigFitness(targetFitness, targetChromosome);
 
-        // Create a custom AutoConfigChromosome with only compatible operators
-        var autoConfigFitness = new AutoConfigFitness(targetFitness, targetChromosome)
+        var autoConfigPopulation = new Population(
+            Constants.GeneticAlgorithm.AutoConfig.PopulationMin,
+            Constants.GeneticAlgorithm.AutoConfig.PopulationMax,
+            new CustomAutoConfigChromosome()
+        );
+
+        var autoConfigGa = new GeneticAlgorithm(
+            autoConfigPopulation,
+            autoConfigFitness,
+            new EliteSelection(),
+            new UniformCrossover(),
+            new UniformMutation()
+        )
         {
-            PopulationMinSize = 50,
-            PopulationMaxSize = 100,
             Termination = new GenerationNumberTermination(maxGenerations / 2),
-            TaskExecutor = new ParallelTaskExecutor(),
-        };
-
-        var autoConfigChromosome = new CustomAutoConfigChromosome();
-        var autoConfigPopulation = new Population(20, 40, autoConfigChromosome);
-
-        var autoConfigGa = new GeneticAlgorithm(autoConfigPopulation, autoConfigFitness, new EliteSelection(), new UniformCrossover(), new UniformMutation())
-        {
-            Termination = new GenerationNumberTermination(maxGenerations / 2),
-            MutationProbability = 0.3f,
-            CrossoverProbability = 0.7f,
+            MutationProbability = Constants.GeneticAlgorithm.AutoConfig.MutationProbability,
+            CrossoverProbability = Constants.GeneticAlgorithm.AutoConfig.CrossoverProbability,
             TaskExecutor = new ParallelTaskExecutor(),
         };
 
         autoConfigGa.GenerationRan += (sender, e) =>
         {
             var bestAutoChromosome = autoConfigGa.BestChromosome as CustomAutoConfigChromosome;
-            Console.WriteLine($"Meta Generation {autoConfigGa.GenerationsNumber}: Best Meta Fitness = {bestAutoChromosome?.Fitness}");
+            Console.WriteLine(
+                $"Meta Generation {autoConfigGa.GenerationsNumber}: Best Meta Fitness = {bestAutoChromosome?.Fitness}"
+            );
         };
 
         autoConfigGa.Start();
@@ -634,7 +894,9 @@ class Program
             ga.GenerationRan += (sender, e) =>
             {
                 var bestFitness = ga.BestChromosome.Fitness;
-                Console.WriteLine($"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}");
+                Console.WriteLine(
+                    $"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}"
+                );
             };
 
             Console.WriteLine("Starting genetic algorithm with optimized operators...");
@@ -663,24 +925,25 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         "EliteSelection",
         "TournamentSelection",
-        "RouletteWheelSelection"
+        "RouletteWheelSelection",
     };
 
     private static readonly IList<string> s_availableCrossovers = new List<string>
     {
         "UniformCrossover",
         "OnePointCrossover",
-        "TwoPointCrossover"
+        "TwoPointCrossover",
     };
 
     private static readonly IList<string> s_availableMutations = new List<string>
     {
         "UniformMutation",
         "ReverseSequenceMutation",
-        "TworsMutation"
+        "TworsMutation",
     };
 
-    public CustomAutoConfigChromosome() : base(3)
+    public CustomAutoConfigChromosome()
+        : base(Constants.GeneticAlgorithm.AutoConfig.GeneCount)
     {
         CreateGenes();
     }
@@ -689,7 +952,8 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(0).Value as ISelection ?? throw new InvalidOperationException("Selection gene is not of type ISelection.");
+            return GetGene(0).Value as ISelection
+                ?? throw new InvalidOperationException("Selection gene is not of type ISelection.");
         }
     }
 
@@ -697,7 +961,8 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(1).Value as ICrossover ?? throw new InvalidOperationException("Crossover gene is not of type ICrossover.");
+            return GetGene(1).Value as ICrossover
+                ?? throw new InvalidOperationException("Crossover gene is not of type ICrossover.");
         }
     }
 
@@ -705,7 +970,8 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
     {
         get
         {
-            return GetGene(2).Value as IMutation ?? throw new InvalidOperationException("Mutation gene is not of type IMutation.");
+            return GetGene(2).Value as IMutation
+                ?? throw new InvalidOperationException("Mutation gene is not of type IMutation.");
         }
     }
 
@@ -737,6 +1003,10 @@ public sealed class CustomAutoConfigChromosome : ChromosomeBase
 
     private static Gene CreateRandomGene<TGeneValue>(IList<string> available)
     {
-        return new Gene(TypeHelper.CreateInstanceByName<TGeneValue>(available[s_randomization.GetInt(0, available.Count)]));
+        return new Gene(
+            TypeHelper.CreateInstanceByName<TGeneValue>(
+                available[s_randomization.GetInt(0, available.Count)]
+            )
+        );
     }
 }
