@@ -15,10 +15,19 @@ public static class Constants
     {
         public static class Ability
         {
-            public const double Mean = 0.7;
-            public const double StdDev = 0.3;
+            public const double Mean = 0.6;
+            public const double StdDev = 0.15;
             public const float Min = 0.0f;
             public const float Max = 1.0f;
+            public const double CorrelationFactor = 0.85;
+
+            public static class Noise
+            {
+                public const double Mean = 0.0;
+                public const double StdDev = 0.1;
+                public const double Min = -0.2;
+                public const double Max = 0.2;
+            }
         }
 
         public static class ContextLength
@@ -50,6 +59,8 @@ public static class Constants
             public const double PlanningNoise = 0.1;
             public const double SuccessThreshold = 0.5;
             public const double DefaultSuccessRate = 0.7;
+            public const float ReasoningWeight = 0.7f;
+            public const float PlanningWeight = 0.3f;
         }
     }
 
@@ -96,19 +107,9 @@ public static class Constants
             public const int PopulationMax = 200;
             public const float MutationProbability = 0.2f;
             public const float CrossoverProbability = 0.8f;
-            public const int GenomeLength = 6;
+            public const int GeneCount = 60;
             public const int DefaultMaxGenerations = 10;
             public const int DefaultPopulationSize = 150;
-        }
-
-        public static class AutoConfig
-        {
-            public const int PopulationMin = 20;
-            public const int PopulationMax = 40;
-            public const float MutationProbability = 0.3f;
-            public const float CrossoverProbability = 0.7f;
-            public const int GeneCount = 3;
-            public const int DefaultGenerations = 5;
         }
 
         public static class Evaluation
@@ -177,66 +178,115 @@ public class Llm
     public float Competency { get; }
     public float CostPerToken { get; }
 
-    private static readonly Normal AbilityDistribution = new Normal(
+    private static readonly Normal BaseAbilityDistribution = new Normal(
         Constants.Llm.Ability.Mean,
         Constants.Llm.Ability.StdDev
     );
 
     private static readonly LogNormal ContextLengthDistribution = new LogNormal(
-        Constants.Llm.ContextLength.DefaultLength,
+        Math.Log(Constants.Llm.ContextLength.DefaultLength),
         Constants.Llm.ContextLength.LogStdDev
     );
 
-    private static readonly ContinuousUniform VerbosityDistribution = new ContinuousUniform(
-        Constants.Llm.Verbosity.Min,
-        Constants.Llm.Verbosity.Max
+    private static readonly Normal BaseVerbosityDistribution = new Normal(
+        Constants.Llm.Verbosity.Default,
+        Constants.Llm.Verbosity.Max - Constants.Llm.Verbosity.Default
     );
 
     private static readonly LogNormal CostPerTokenDistribution = new LogNormal(
-        Constants.Llm.CostPerToken.DefaultCost,
+        Math.Log(Constants.Llm.CostPerToken.DefaultCost),
         Constants.Llm.CostPerToken.StdDevMultiplier
     );
 
     public Llm()
     {
-        ContextLength = (int)
-            Math.Clamp(
-                Math.Pow(2, Math.Round(ContextLengthDistribution.Sample())),
-                Constants.Llm.ContextLength.Min,
-                Constants.Llm.ContextLength.Max
-            );
-        PlanningAbility = (float)Math.Clamp(AbilityDistribution.Sample(), 0, 1);
-        Competency = (float)Math.Clamp(AbilityDistribution.Sample(), 0, 1);
-        Verbosity = (float)VerbosityDistribution.Sample();
-        CostPerToken = (float)
-            Math.Clamp(
-                CostPerTokenDistribution.Sample(),
-                Constants.Llm.CostPerToken.Min,
-                Constants.Llm.CostPerToken.Max
-            );
+        // Generate base competency first as our anchor point
+        float baseCompetency = (float)Math.Clamp(
+            BaseAbilityDistribution.Sample(),
+            Constants.Llm.Ability.Min,
+            Constants.Llm.Ability.Max
+        );
+
+        // Generate correlated planning ability with noise
+        float planningNoise = (float)Math.Clamp(
+            new Normal(Constants.Llm.Ability.Noise.Mean, Constants.Llm.Ability.Noise.StdDev).Sample(),
+            Constants.Llm.Ability.Noise.Min,
+            Constants.Llm.Ability.Noise.Max
+        );
+
+        PlanningAbility = (float)Math.Clamp(
+            baseCompetency * Constants.Llm.Ability.CorrelationFactor
+            + (1 - Constants.Llm.Ability.CorrelationFactor) * BaseAbilityDistribution.Sample()
+            + planningNoise,
+            Constants.Llm.Ability.Min,
+            Constants.Llm.Ability.Max
+        );
+
+        // Set final competency with slight variation from base
+        float competencyNoise = (float)Math.Clamp(
+            new Normal(Constants.Llm.Ability.Noise.Mean, Constants.Llm.Ability.Noise.StdDev).Sample(),
+            Constants.Llm.Ability.Noise.Min,
+            Constants.Llm.Ability.Noise.Max
+        );
+        Competency = (float)Math.Clamp(
+            baseCompetency + competencyNoise,
+            Constants.Llm.Ability.Min,
+            Constants.Llm.Ability.Max
+        );
+
+        // Calculate average capability for cost correlation
+        float avgCapability = (Competency + PlanningAbility) / 2f;
+
+        // Generate correlated cost per token
+        double baseCost = CostPerTokenDistribution.Sample();
+        double costMultiplier = 1 + (avgCapability * Constants.Llm.CostPerToken.StdDevMultiplier);
+        CostPerToken = (float)Math.Clamp(
+            baseCost * costMultiplier * (1 + new Normal(0, 0.1).Sample()),
+            Constants.Llm.CostPerToken.Min,
+            Constants.Llm.CostPerToken.Max
+        );
+
+        // Generate independent context length
+        ContextLength = (int)Math.Clamp(
+            Math.Pow(2, Math.Round(Math.Log2(ContextLengthDistribution.Sample()))),
+            Constants.Llm.ContextLength.Min,
+            Constants.Llm.ContextLength.Max
+        );
+
+        // Generate verbosity
+        Verbosity = (float)Math.Clamp(
+            BaseVerbosityDistribution.Sample(),
+            Constants.Llm.Verbosity.Min,
+            Constants.Llm.Verbosity.Max
+        );
     }
 
     public bool SolveTask(Task task)
     {
-        float scaledCompetency = Competency * task.RootTask.CompetencyRequired;
-        float scaledPlanningAbility = PlanningAbility * task.RootTask.PlanningRequired;
-        float avgCompetency = (scaledCompetency + scaledPlanningAbility) / 2f;
+        // Primarily uses reasoning ability for problem solving
+        float scaledReasoning = Competency * task.RootTask.ReasoningRequired * Constants.Llm.Performance.ReasoningWeight;
+        float scaledPlanning = PlanningAbility * task.RootTask.PlanningRequired * Constants.Llm.Performance.PlanningWeight;
+        float avgCapability = scaledReasoning + scaledPlanning;
 
+        // Adjust for context length limitations
         int scaledTokenEstimate = (int)(task.RootTask.TokenEstimate * Verbosity);
-        float adjustedCompetency =
-            scaledTokenEstimate > ContextLength ? avgCompetency / 2f : avgCompetency;
+        float adjustedCapability = scaledTokenEstimate > ContextLength
+            ? avgCapability * (ContextLength / (float)scaledTokenEstimate)
+            : avgCapability;
 
-        return new Normal(adjustedCompetency, Constants.Llm.Performance.CompetencyNoise)
-            .Sample()
+        return new Normal(adjustedCapability, Constants.Llm.Performance.CompetencyNoise).Sample()
             > Constants.Llm.Performance.SuccessThreshold;
     }
 
     public List<SubTask> BreakDownTask(Task task)
     {
-        float threshold =
-            1f - (task.RootTask.ReasoningRequired + task.RootTask.PlanningRequired) / 2f;
-        bool success =
-            new Normal(PlanningAbility, Constants.Llm.Performance.PlanningNoise).Sample() > threshold;
+        // Primarily uses planning ability for task decomposition
+        float taskComplexity = task.RootTask.PlanningRequired * Constants.Llm.Performance.PlanningWeight
+            + task.RootTask.ReasoningRequired * Constants.Llm.Performance.ReasoningWeight;
+        float threshold = 1f - taskComplexity;
+
+        // Success heavily weighted towards planning ability
+        bool success = new Normal(PlanningAbility, Constants.Llm.Performance.PlanningNoise).Sample() > threshold;
 
         if (success)
         {
@@ -244,28 +294,25 @@ public class Llm
         }
         else
         {
-            return task
-                .Subtasks.Select(subtask => new SubTask
-                {
-                    ReasoningRequired = Math.Min(
-                        subtask.ReasoningRequired + Constants.Task.Generation.DifficultyIncrement,
-                        Constants.Task.Generation.DifficultyMax
-                    ),
-                    PlanningRequired = Math.Min(
-                        subtask.PlanningRequired + Constants.Task.Generation.DifficultyIncrement,
-                        Constants.Task.Generation.DifficultyMax
-                    ),
-                    CompetencyRequired = Math.Min(
-                        subtask.CompetencyRequired + Constants.Task.Generation.DifficultyIncrement,
-                        Constants.Task.Generation.DifficultyMax
-                    ),
-                    TokenEstimate = subtask.TokenEstimate,
-                })
-                .ToList();
+            return task.Subtasks.Select(subtask => new SubTask
+            {
+                ReasoningRequired = Math.Min(
+                    subtask.ReasoningRequired + Constants.Task.Generation.DifficultyIncrement,
+                    Constants.Task.Generation.DifficultyMax
+                ),
+                PlanningRequired = Math.Min(
+                    subtask.PlanningRequired + Constants.Task.Generation.DifficultyIncrement,
+                    Constants.Task.Generation.DifficultyMax
+                ),
+                CompetencyRequired = Math.Min(
+                    subtask.CompetencyRequired + Constants.Task.Generation.DifficultyIncrement,
+                    Constants.Task.Generation.DifficultyMax
+                ),
+                TokenEstimate = subtask.TokenEstimate
+            }).ToList();
         }
     }
 }
-
 public enum LLMGene
 {
     Single = 0,
@@ -349,7 +396,7 @@ public class LlmTeamChromosome : ChromosomeBase
     public double FitnessValue { get; set; }
 
     public LlmTeamChromosome()
-        : base(Constants.GeneticAlgorithm.AutoConfig.GeneCount)
+        : base(Constants.GeneticAlgorithm.Standard.GeneCount)
     {
         CreateGenes();
     }
@@ -581,7 +628,7 @@ public class Task
             .Range(0, Constants.GeneticAlgorithm.Evaluation.TeamsPerTask)
             .Select(_ =>
                 Enumerable
-                    .Range(0, Constants.GeneticAlgorithm.AutoConfig.GeneCount)
+                    .Range(0, Constants.GeneticAlgorithm.Standard.GeneCount)
                     .Select(_ => new Llm())
                     .ToList()
             )
@@ -632,7 +679,6 @@ class Program
     static void Main(string[] args)
     {
         int maxGenerations = 10;
-        bool useAutoConfig = false;
 
         // Parse command-line arguments
         for (int i = 0; i < args.Length; i++)
@@ -646,20 +692,9 @@ class Program
                 maxGenerations = parsedValue;
                 i++; // Skip next argument as it's part of this option
             }
-            else if (args[i] == "--autoconfig")
-            {
-                useAutoConfig = true;
-            }
         }
 
-        if (useAutoConfig)
-        {
-            RunAutoConfigGA(maxGenerations);
-        }
-        else
-        {
-            RunStandardGA(maxGenerations);
-        }
+        RunStandardGA(maxGenerations);
     }
 
     static void AnalyzePopulation(Population population, int generationNumber)
@@ -825,188 +860,5 @@ class Program
                 None: () => Console.WriteLine("Invalid team structure.")
             );
         }
-    }
-
-    static void RunAutoConfigGA(int maxGenerations)
-    {
-        var targetFitness = new LlmTeamFitness();
-        var targetChromosome = new LlmTeamChromosome();
-        var autoConfigFitness = new AutoConfigFitness(targetFitness, targetChromosome);
-
-        var autoConfigPopulation = new Population(
-            Constants.GeneticAlgorithm.AutoConfig.PopulationMin,
-            Constants.GeneticAlgorithm.AutoConfig.PopulationMax,
-            new CustomAutoConfigChromosome()
-        );
-
-        var autoConfigGa = new GeneticAlgorithm(
-            autoConfigPopulation,
-            autoConfigFitness,
-            new EliteSelection(),
-            new UniformCrossover(),
-            new UniformMutation()
-        )
-        {
-            Termination = new GenerationNumberTermination(maxGenerations / 2),
-            MutationProbability = Constants.GeneticAlgorithm.AutoConfig.MutationProbability,
-            CrossoverProbability = Constants.GeneticAlgorithm.AutoConfig.CrossoverProbability,
-            TaskExecutor = new ParallelTaskExecutor(),
-        };
-
-        autoConfigGa.GenerationRan += (sender, e) =>
-        {
-            var bestAutoChromosome = autoConfigGa.BestChromosome as CustomAutoConfigChromosome;
-            Console.WriteLine(
-                $"Meta Generation {autoConfigGa.GenerationsNumber}: Best Meta Fitness = {bestAutoChromosome?.Fitness}"
-            );
-        };
-
-        autoConfigGa.Start();
-
-        var bestAutoConfigChromosome = autoConfigGa.BestChromosome as CustomAutoConfigChromosome;
-
-        if (bestAutoConfigChromosome != null)
-        {
-            // Extract the optimized operators
-            var selection = bestAutoConfigChromosome.Selection;
-            var crossover = bestAutoConfigChromosome.Crossover;
-            var mutation = bestAutoConfigChromosome.Mutation;
-
-            Console.WriteLine("Optimized GA operators found:");
-            Console.WriteLine($"Selection Operator: {selection.GetType().Name}");
-            Console.WriteLine($"Crossover Operator: {crossover.GetType().Name}");
-            Console.WriteLine($"Mutation Operator: {mutation.GetType().Name}");
-
-            // Run the standard GA with optimized operators
-            var fitness = new LlmTeamFitness();
-            var chromosome = new LlmTeamChromosome();
-            var population = new Population(100, 200, chromosome);
-
-            var ga = new GeneticAlgorithm(population, fitness, selection, crossover, mutation)
-            {
-                Termination = new GenerationNumberTermination(maxGenerations),
-                MutationProbability = 0.2f,
-                CrossoverProbability = 0.8f,
-                TaskExecutor = new ParallelTaskExecutor(),
-                Reinsertion = new ElitistReinsertion(),
-            };
-
-            ga.GenerationRan += (sender, e) =>
-            {
-                var bestFitness = ga.BestChromosome.Fitness;
-                Console.WriteLine(
-                    $"Generation {ga.GenerationsNumber}: Best Fitness = {bestFitness}"
-                );
-            };
-
-            Console.WriteLine("Starting genetic algorithm with optimized operators...");
-            ga.Start();
-
-            Console.WriteLine($"Best solution found has {ga.BestChromosome.Fitness} fitness.");
-            var bestChromosome = ga.BestChromosome as LlmTeamChromosome;
-            if (bestChromosome != null)
-            {
-                Console.WriteLine($"Best genome: {string.Join(", ", bestChromosome.GetDna())}");
-            }
-        }
-        else
-        {
-            Console.WriteLine("Failed to find optimized operators using AutoConfig.");
-        }
-    }
-}
-
-// Custom AutoConfigChromosome that includes only compatible operators
-public sealed class CustomAutoConfigChromosome : ChromosomeBase
-{
-    private static readonly IRandomization s_randomization = RandomizationProvider.Current;
-
-    private static readonly IList<string> s_availableSelections = new List<string>
-    {
-        "EliteSelection",
-        "TournamentSelection",
-        "RouletteWheelSelection",
-    };
-
-    private static readonly IList<string> s_availableCrossovers = new List<string>
-    {
-        "UniformCrossover",
-        "OnePointCrossover",
-        "TwoPointCrossover",
-    };
-
-    private static readonly IList<string> s_availableMutations = new List<string>
-    {
-        "UniformMutation",
-        "ReverseSequenceMutation",
-        "TworsMutation",
-    };
-
-    public CustomAutoConfigChromosome()
-        : base(Constants.GeneticAlgorithm.AutoConfig.GeneCount)
-    {
-        CreateGenes();
-    }
-
-    public ISelection Selection
-    {
-        get
-        {
-            return GetGene(0).Value as ISelection
-                ?? throw new InvalidOperationException("Selection gene is not of type ISelection.");
-        }
-    }
-
-    public ICrossover Crossover
-    {
-        get
-        {
-            return GetGene(1).Value as ICrossover
-                ?? throw new InvalidOperationException("Crossover gene is not of type ICrossover.");
-        }
-    }
-
-    public IMutation Mutation
-    {
-        get
-        {
-            return GetGene(2).Value as IMutation
-                ?? throw new InvalidOperationException("Mutation gene is not of type IMutation.");
-        }
-    }
-
-    public override IChromosome CreateNew()
-    {
-        return new CustomAutoConfigChromosome();
-    }
-
-    public override Gene GenerateGene(int geneIndex)
-    {
-        switch (geneIndex)
-        {
-            // Selection.
-            case 0:
-                return CreateRandomGene<ISelection>(s_availableSelections);
-
-            // Crossover.
-            case 1:
-                return CreateRandomGene<ICrossover>(s_availableCrossovers);
-
-            // Mutation.
-            case 2:
-                return CreateRandomGene<IMutation>(s_availableMutations);
-
-            default:
-                throw new InvalidOperationException("Invalid AutoConfigChromosome gene index.");
-        }
-    }
-
-    private static Gene CreateRandomGene<TGeneValue>(IList<string> available)
-    {
-        return new Gene(
-            TypeHelper.CreateInstanceByName<TGeneValue>(
-                available[s_randomization.GetInt(0, available.Count)]
-            )
-        );
     }
 }
