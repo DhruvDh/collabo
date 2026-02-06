@@ -81,13 +81,14 @@ impl LLMGene {
 }
 
 impl GeneT for LLMGene {
-    fn set_id(&mut self, id: i32) {
+    fn set_id(&mut self, id: i32) -> &mut Self {
         *self = match id.abs() % 3 {
             0 => LLMGene::Single(id),
             1 => LLMGene::Vertical(id),
             2 => LLMGene::Horizontal(id),
             _ => unreachable!(),
         };
+        self
     }
 
     fn get_id(&self) -> i32 {
@@ -111,7 +112,7 @@ struct Llm {
 
 impl Default for Llm {
     fn default() -> Self {
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = rand::rng();
 
         // Sample the context length as a power of 2
         let context_length_power = Normal::new(
@@ -281,7 +282,7 @@ struct SubTask {
 
 impl Default for SubTask {
     fn default() -> Self {
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = rand::rng();
 
         // Normal distribution for difficulty-related fields
         let difficulty_dist = Normal::new(TASK_DIFFICULTY_MEAN, TASK_DIFFICULTY_STD_DEV).unwrap();
@@ -291,6 +292,7 @@ impl Default for SubTask {
             planning_required: difficulty_dist.sample(&mut rng).clamp(0.0, 1.0) as f32,
             competency_required: difficulty_dist.sample(&mut rng).clamp(0.0, 1.0) as f32,
             token_estimate: Uniform::new(SUBTASK_TOKEN_ESTIMATE_MIN, SUBTASK_TOKEN_ESTIMATE_MAX)
+                .expect("Valid subtask token range")
                 .sample(&mut rng),
         }
     }
@@ -298,7 +300,7 @@ impl Default for SubTask {
 
 impl Default for Task {
     fn default() -> Self {
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = rand::rng();
         let root_task_token_estimate = Normal::new(
             ROOT_TASK_TOKEN_ESTIMATE_MEAN,
             ROOT_TASK_TOKEN_ESTIMATE_STD_DEV,
@@ -314,7 +316,9 @@ impl Default for Task {
             ..Default::default()
         };
 
-        let num_subtasks = Uniform::new(SUBTASK_COUNT_MIN, SUBTASK_COUNT_MAX).sample(&mut rng);
+        let num_subtasks = Uniform::new(SUBTASK_COUNT_MIN, SUBTASK_COUNT_MAX)
+            .expect("Valid subtask count range")
+            .sample(&mut rng);
         let avg_subtask_token_estimate = root_task_token_estimate as f32 / num_subtasks as f32;
 
         let subtasks = (0..num_subtasks)
@@ -418,7 +422,7 @@ impl Llm {
             avg_competency
         };
 
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = rand::rng();
 
         Normal::new(adjusted_competency as f64, 0.2)
             .unwrap()
@@ -429,7 +433,7 @@ impl Llm {
     fn break_down_task(&self, task: &Task) -> Vec<SubTask> {
         let threshold =
             1.0 - (task.root_task.reasoning_required + task.root_task.planning_required) / 2.0;
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = rand::rng();
         let success = Normal::new(self.planning_ability, 0.1)
             .unwrap()
             .sample(&mut rng)
@@ -458,8 +462,9 @@ impl GenotypeT for LlmTeamGenome {
         &self.dna
     }
 
-    fn set_dna(&mut self, dna: &[Self::Gene]) {
+    fn set_dna(&mut self, dna: &[Self::Gene]) -> &mut Self {
         self.dna = dna.try_into().expect("Invalid DNA length");
+        self
     }
 
     /// Calculates the fitness of the LLMTeamGenome based on its performance on the tasks.
@@ -489,12 +494,14 @@ impl GenotypeT for LlmTeamGenome {
         self.fitness
     }
 
-    fn set_fitness(&mut self, fitness: f64) {
+    fn set_fitness(&mut self, fitness: f64) -> &mut Self {
         self.fitness = fitness;
+        self
     }
 
-    fn set_age(&mut self, age: i32) {
+    fn set_age(&mut self, age: i32) -> &mut Self {
         self.age = age;
+        self
     }
 
     fn get_age(&self) -> i32 {
